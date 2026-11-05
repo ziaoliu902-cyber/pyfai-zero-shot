@@ -2,7 +2,7 @@
 
 **Draft v0.4 — 2026-11-03（v0.4：标题+摘要口径改为 phase-blind zero-shot——cascade/hybrid 从主线降为实现机制，补跨仪器基准与共心真值中心两句；正文未动。v0.3：Abstract 199 词、全文 polish、数据考证、查新；数字均出自项目文档 07–13 号 + zoo 基准 v3/T9）**
 
-作者：[TODO — 须用户提供] 单位：[TODO — 须用户提供] 目标期刊：*Journal of Applied Crystallography*
+作者：Ziao Liu（ziaoliu902@gmail.com） 单位：[待补] 目标期刊：*Journal of Applied Crystallography*
 
 ---
 
@@ -414,9 +414,7 @@ single method — learned or geometric.
 ## Data availability
 
 Synthetic generator, solver library and probes are openly available at
-https://github.com/ziaoliu902-cyber/pyfai-zero-shot; the exact version
-underlying this paper is archived on Zenodo (DOI
-10.5281/zenodo.XXXXXXX, to be assigned). Both real datasets are the publicly distributed pyFAI test
+https://github.com/ziaoliu902-cyber/pyfai-zero-shot. Both real datasets are the publicly distributed pyFAI test
 images (https://www.silx.org/pub/pyFAI/testimages/), originally
 acquired at the D2AM beamline (BM02, ESRF): the CeO2 multi-distance
 calibrant frames (Pilatus 6M, 172 µm pixels, λ = 0.9724 Å, nominal
@@ -523,7 +521,7 @@ floor (§4.4, error budget §4 of doc 12).
       D2AM/BM02, λ=0.7085Å → Data availability 已填）
 - [x] 投稿前查新重跑（第4+5轮，2026-11-01：OpenAlex+Crossref+arXiv，
       2026-09 以来增量，**无直接先行工作**；结果 docs/查新重跑_2026-11-01.txt）
-- [ ] 作者/单位（**须用户提供**，无法代填）
+- [x] 作者（Ziao Liu + ziaoliu902@gmail.com，2026-11-05 用户提供）· [ ] 单位（暂缓，待用户提供）
 - [ ] 基金号（**须用户提供**，Acknowledgements 占位已留）
 - [x] ~~D2AM 致谢/机时号确认~~ → **2026-11-01 字节级验证：三套真实数据全部
       = pyFAI 公开测试图**（MX_ceria/alumina md5 与 silx.org 分发版一致，

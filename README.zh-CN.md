@@ -116,16 +116,18 @@ assets/        本 README 所用图表
 > 倾角、可直接使用的 PONI、不确定度区间和物相识别。在我们的解固定并打上时间
 > 戳之前，我们不会看到参考值。**负结果同样如实报告**——失败附带归因，而非借口。
 
+**联系人：** Ziao Liu · ziaoliu902@gmail.com
+
 ## 引用
 
 ```bibtex
 @software{pyfai_zero_shot_2026,
-  author = {{The pyfai-zero-shot authors}},
+  author = {Liu, Ziao},
   title  = {pyfai-zero-shot: phase-blind, zero-shot geometry calibration
             of 2-D X-ray detectors from powder rings},
   year   = {2026},
   url    = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
-  note   = {v0.5; Zenodo DOI to be assigned}
+  note   = {v0.5}
 }
 ```
 

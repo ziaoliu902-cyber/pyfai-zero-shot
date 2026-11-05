@@ -128,16 +128,18 @@ assets/        иллюстрации к этому README
 > решение не зафиксировано и не снабжено меткой времени. **Отрицательные
 > результаты публикуются как есть** — с объяснением причины, а не оправданием.
 
+**Контакты:** Ziao Liu · ziaoliu902@gmail.com
+
 ## Цитирование
 
 ```bibtex
 @software{pyfai_zero_shot_2026,
-  author = {{The pyfai-zero-shot authors}},
+  author = {Liu, Ziao},
   title  = {pyfai-zero-shot: phase-blind, zero-shot geometry calibration
             of 2-D X-ray detectors from powder rings},
   year   = {2026},
   url    = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
-  note   = {v0.5; Zenodo DOI to be assigned}
+  note   = {v0.5}
 }
 ```
 
