@@ -7,7 +7,7 @@
 🚫 无需已知标样物相 &nbsp;·&nbsp; 🚫 无需几何初值 &nbsp;·&nbsp; 🚫 波长可未知<br>
 ✅ 直接输出标准 pyFAI PONI &nbsp;·&nbsp; ✅ 自带 bootstrap 不确定度
 
-[English](README.md) · **简体中文** · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md)
+[English](README.md) · **简体中文** · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v0.5_preprint-1a365d)]()

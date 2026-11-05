@@ -7,7 +7,7 @@
 🚫 keine bekannte Kalibrierphase &nbsp;·&nbsp; 🚫 kein Startwert für die Geometrie &nbsp;·&nbsp; 🚫 Wellenlänge optional unbekannt<br>
 ✅ Ausgabe als Standard-pyFAI-PONI &nbsp;·&nbsp; ✅ Bootstrap-Unsicherheiten
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · **Deutsch** · [Русский](README.ru.md) · [Français](README.fr.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · **Deutsch** · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/Lizenz-MIT-1a365d)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-v0.5_Preprint-1a365d)]()

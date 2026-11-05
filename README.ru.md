@@ -7,7 +7,7 @@
 🚫 не нужно знать калибрант &nbsp;·&nbsp; 🚫 не нужно начальное приближение геометрии &nbsp;·&nbsp; 🚫 длина волны может быть неизвестна<br>
 ✅ на выходе — стандартный PONI для pyFAI &nbsp;·&nbsp; ✅ bootstrap-неопределённости
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · **Русский** · [Français](README.fr.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · **Русский** · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/лицензия-MIT-1a365d)](LICENSE)
 [![Version](https://img.shields.io/badge/версия-v0.5_preprint-1a365d)]()

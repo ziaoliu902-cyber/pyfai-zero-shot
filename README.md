@@ -7,7 +7,7 @@
 🚫 no calibrant identity &nbsp;·&nbsp; 🚫 no initial geometry &nbsp;·&nbsp; 🚫 optionally no wavelength<br>
 ✅ standard pyFAI PONI out &nbsp;·&nbsp; ✅ bootstrap uncertainties
 
-**English** · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md)
+**English** · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v0.5_preprint-1a365d)]()

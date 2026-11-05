@@ -7,7 +7,7 @@
 🚫 pas de phase-étalon connue &nbsp;·&nbsp; 🚫 pas de géométrie initiale &nbsp;·&nbsp; 🚫 longueur d'onde optionnellement inconnue<br>
 ✅ sortie en PONI pyFAI standard &nbsp;·&nbsp; ✅ incertitudes bootstrap
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · **Français**
+[English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · **Français** · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/licence-MIT-1a365d)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v0.5_préprint-1a365d)]()
