@@ -1,0 +1,314 @@
+# 查新重跑（第4轮） 2026-11-01T03:03:53.165Z
+# 增量窗口: publication/submission >= 2026-09-01（首轮 2026-10-18，留余量）
+
+
+########## neural network SAXS WAXS detector geometry calibration ##########
+[OA] FAILED: HTTP 429
+[arXiv 2026-10-29] Variational wavefunctions for ideal anyon gas: superfluid and skyrmion Hall crystal | http://arxiv.org/abs/2610.40657v1
+[arXiv 2026-10-29] Reconstructing hidden observables via quantum snapshot thermometry | http://arxiv.org/abs/2610.40652v1
+[arXiv 2026-10-29] Renormalization for Robust Memory without Synchronization | http://arxiv.org/abs/2610.40651v1
+[arXiv 2026-10-29] Rethinking Neural Thickets Without Weight Perturbations | http://arxiv.org/abs/2610.40649v1
+[arXiv 2026-10-29] Read, Allocate, Route: Role-Coupled Tokenization for Pixel-Space Generative Transformers | http://arxiv.org/abs/2610.40647v1
+[arXiv 2026-10-29] From extreme weather to agricultural consequences with agentic AI | http://arxiv.org/abs/2610.40641v1
+[arXiv 2026-10-29] SonoWorld4D: From One Video to a 4D Audio-Visual Scene via Diffusion Synchronization | http://arxiv.org/abs/2610.40640v1
+[arXiv 2026-10-29] Multicomplexes in Action: Strong Formality of Compact Hyperkähler Manifolds | http://arxiv.org/abs/2610.40639v1
+
+########## deep learning beam center detector distance diffraction regression ##########
+[OA] FAILED: HTTP 429
+[arXiv 2026-10-29] Propose-Filter-Release: Scaling Noise to Typical Sensitivity via Private Filtering | http://arxiv.org/abs/2610.40654v1
+[arXiv 2026-10-29] Rethinking Neural Thickets Without Weight Perturbations | http://arxiv.org/abs/2610.40649v1
+[arXiv 2026-10-29] Read, Allocate, Route: Role-Coupled Tokenization for Pixel-Space Generative Transformers | http://arxiv.org/abs/2610.40647v1
+[arXiv 2026-10-29] SwapBot: Tool-Centric Robot Manipulation via Interchangeable End-Effectors and Tactile Sensing | http://arxiv.org/abs/2610.40646v1
+[arXiv 2026-10-29] Adaptive Scenario Generation for KL-DRO Around a Learned Density Model | http://arxiv.org/abs/2610.40644v1
+[arXiv 2026-10-29] world2vec: Mechanistic world models through latent dynamics learning | http://arxiv.org/abs/2610.40637v1
+[arXiv 2026-10-29] Gravitational-Wave Echoes and Greybody Cutoff from Logarithmic Throats at a Marginal-Trapping Threshold | http://arxiv.org/abs/2610.40631v1
+[arXiv 2026-10-29] Central Limit Theorems and Network-Free Inference for Heterogeneous Spatial Autoregressions on Sparse Graphons | http://arxiv.org/abs/2610.40630v1
+
+########## differentiable azimuthal integration ##########
+[OA 2026-10-30] Vacuum and thermal fluctuations of a scalar field with point interactions | Letters in Mathematical Physics | cited 0 | https://doi.org/10.1007/s11005-026-02180-7
+[OA 2026-10-30] Nonlocal optical response and surface susceptibilities: A systematic derivation via spatial moment expansion | Physical review. B./Physical review. B | cited 0 | https://doi.org/10.1103/xp4h-j5nv
+[OA 2026-10-30] Symmetry-assisted computation of the magnetic field at the site of a point dipole | European Journal of Physics | cited 0 | https://doi.org/10.1088/1361-6404/aebc24
+[OA 2026-10-30] Hidden transverse-flow topology in partially coherent structured light | Optics Express | cited 0 | https://doi.org/10.1364/oe.610739
+[OA 2026-10-30] Demo: Closed-Loop Sionna-Isaac Sim Co-Simulation Framework for Wireless-Aware Robot Navigation over ROS 2 | ACM International Symposium on Theory, Algorithmic Foundations, and Protocol Design for Mobile Networks and Mobile Computing (MobiHoc) | cited 0 | https://doi.org/10.1145/3842721.3850090
+[OA 2026-10-30] UrbanPulse: A Dynamic Multi-Attribute A* Pathfinding and Real-Time Telemetry Framework for Intelligent Urban Bike Navigation | IJARCCE | cited 0 | https://doi.org/10.17148/ijarcce.2026.1510136
+[OA 2026-10-30] Bridging or widening the divide? Exploring the role of AI technology in Smart City Development Efficiency and Spatial-temporal Divergence in China | Research Square | cited 0 | https://doi.org/10.21203/rs.3.rs-11307016/v1
+[OA 2026-10-30] Embedded True Proportional Navigation Guidance for a High-Dynamic Flight Vehicle: Real-Time MIL--HIL Validation | Research Square | cited 0 | https://doi.org/10.21203/rs.3.rs-11304521/v1
+[OA 2026-10-29] Chiral magnetism and quantum anomalous Hall effect in a low-energy Kondo model on the triangular lattice | Physical review. B./Physical review. B | cited 0 | https://doi.org/10.1103/t9yg-8xcy
+[OA 2026-10-29] Driver Fatigue Detection Using Frequency‑modulated Continuous Millimeter‑wave Radar and Machine Learning with Feature Extraction | Sensors and Materials | cited 0 | https://doi.org/10.18494/sam6572
+[arXiv 2026-10-29] Propose-Filter-Release: Scaling Noise to Typical Sensitivity via Private Filtering | http://arxiv.org/abs/2610.40654v1
+[arXiv 2026-10-29] SwapBot: Tool-Centric Robot Manipulation via Interchangeable End-Effectors and Tactile Sensing | http://arxiv.org/abs/2610.40646v1
+[arXiv 2026-10-29] JT gravity as a conformal scaling limit of random flat combinatorial disks | http://arxiv.org/abs/2610.40645v1
+[arXiv 2026-10-29] Multicomplexes in Action: Strong Formality of Compact Hyperkähler Manifolds | http://arxiv.org/abs/2610.40639v1
+[arXiv 2026-10-29] Hyaluronic acid over-expression drives tissue architecture in both healthy and diseased states | http://arxiv.org/abs/2610.40634v1
+[arXiv 2026-10-29] An ODE-based Sampler for Discrete Diffusion Models | http://arxiv.org/abs/2610.40618v1
+[arXiv 2026-10-29] A Conveyor Belt Mechanism for Repositionable Magnetic Coupling Between Continuum Robots | http://arxiv.org/abs/2610.40600v1
+[arXiv 2026-10-29] Analog Realization and Measurement of a Forced Aliev-Panfilov Excitable Oscillator | http://arxiv.org/abs/2610.40597v1
+
+########## machine learning automatic calibration Debye rings ##########
+[OA 2026-10-25] Orochi: A Physics-Grounded Python Package for Pair Distribution Function Analysis of Crystalline and Low-Dimensional Materials | ChemRxiv | cited 0 | https://doi.org/10.26434/chemrxiv.15010802/v2
+[OA 2026-10-21] Distribution Function Analysis of Crystalline and Low-Dimensional Materials | ChemRxiv | cited 0 | https://doi.org/10.26434/chemrxiv.15010802/v1
+[OA 2026-10-21] Deep Learning for Advancing Ground-Penetrating Radar under Transport Infrastructure: A Comprehensive Review | Intelligent Transportation Infrastructure | cited 0 | https://doi.org/10.1093/iti/liag019
+[OA 2026-10-19] Trustworthy machine learning of diffractograms to prevent silent failure of apparently accurate models | Communications Materials | cited 0 | https://doi.org/10.1038/s43246-026-01354-z
+[OA 2026-10-14] Deep Learning for High‐Resolution Synchrotron X‐Ray Microtomography of Biochar and Ash Materials: A Review | Advanced Engineering Materials | cited 0 | https://doi.org/10.1002/adem.71319
+[OA 2026-10-12] Using 4D synchrotron X-ray microtomography rigs for time-resolved X-ray diffraction experiments: applications with the Mjölnir suite | - | cited 0 | https://doi.org/10.31223/x5jz35
+[OA 2026-10-07] CryoModel-4K: physics-based BSIM4 extension for 28 nm bulk CMOS compact modeling at 4 Kelvin | Scientific Reports | cited 0 | https://doi.org/10.1038/s41598-026-69962-w
+[OA 2026-10-05] Wearable sweat sensors for arthritis monitoring | Chemical Engineering Journal | cited 0 | https://doi.org/10.1016/j.cej.2026.182747
+[OA 2026-10-02] Neural Posterior Estimation via Hierarchical Bayesian Distillation | uO Research (University of Ottawa) | cited 0 | https://doi.org/10.20381/ruor-32290
+[OA 2026-10-01] Isomeric effects in propanol and butanol isomers quantified with microwave microfluidic spectroscopy | The Journal of Chemical Physics | cited 0 | https://doi.org/10.1063/5.0344277
+[arXiv 2026-10-29] Propose-Filter-Release: Scaling Noise to Typical Sensitivity via Private Filtering | http://arxiv.org/abs/2610.40654v1
+[arXiv 2026-10-29] Reconstructing hidden observables via quantum snapshot thermometry | http://arxiv.org/abs/2610.40652v1
+[arXiv 2026-10-29] Rethinking Neural Thickets Without Weight Perturbations | http://arxiv.org/abs/2610.40649v1
+[arXiv 2026-10-29] Read, Allocate, Route: Role-Coupled Tokenization for Pixel-Space Generative Transformers | http://arxiv.org/abs/2610.40647v1
+[arXiv 2026-10-29] SwapBot: Tool-Centric Robot Manipulation via Interchangeable End-Effectors and Tactile Sensing | http://arxiv.org/abs/2610.40646v1
+[arXiv 2026-10-29] Adaptive Scenario Generation for KL-DRO Around a Learned Density Model | http://arxiv.org/abs/2610.40644v1
+[arXiv 2026-10-29] From extreme weather to agricultural consequences with agentic AI | http://arxiv.org/abs/2610.40641v1
+[arXiv 2026-10-29] world2vec: Mechanistic world models through latent dynamics learning | http://arxiv.org/abs/2610.40637v1
+
+########## CNN synchrotron diffraction calibration ##########
+[OA] FAILED: HTTP 429
+[arXiv 2026-10-29] Reconstructing hidden observables via quantum snapshot thermometry | http://arxiv.org/abs/2610.40652v1
+[arXiv 2026-10-29] From extreme weather to agricultural consequences with agentic AI | http://arxiv.org/abs/2610.40641v1
+[arXiv 2026-10-29] Field-level inference under pressure: the information content of the thermal Sunyaev-Zel'dovich field | http://arxiv.org/abs/2610.40617v1
+[arXiv 2026-10-29] Difficulty Calibration Across Time for Membership Inference in Diffusion Models | http://arxiv.org/abs/2610.40616v1
+[arXiv 2026-10-29] Exceptional Points as Witnesses of Non-Gaussian Noise | http://arxiv.org/abs/2610.40612v1
+[arXiv 2026-10-29] The unresolved high-mass frontier of the black hole Fundamental Plane | http://arxiv.org/abs/2610.40606v1
+[arXiv 2026-10-29] Collaborative AI agents for autonomous experimental research with solid-state quantum spins | http://arxiv.org/abs/2610.40589v1
+[arXiv 2026-10-29] Beyond Ground Truth: A Heuristic Unsupervised Quality Assurance Engine for Diagnosing Calibrational Blindness in Dental Segmentation | http://arxiv.org/abs/2610.40587v1
+
+########## neural network powder diffraction instrument calibration regression ##########
+[OA 2026-10-28] Continuous and Wireless Monitoring of Myocardial Dynamics Using Biocompatible Magneto‐Viscoelastic Patches | Advanced Materials | cited 0 | https://doi.org/10.1002/adma.75549
+[OA 2026-10-27] 3D Cuprous Iodide Cluster‐Covalent Organic Framework for Ultrasensitive and Highly Selective Trace HF Detection at Room Temperature | Advanced Materials | cited 0 | https://doi.org/10.1002/adma.75550
+[OA 2026-10-26] Measuring the surface acidity of graphene oxide: What each method sees and what it assumes | Journal of URFU (URFU) | cited 0 | https://doi.org/10.15826/chimtech.10443
+[OA 2026-10-26] PROGRAM AND BOOK OF ABSTRACTS 2026 | Materiali in tehnologije | cited 0 | https://doi.org/10.17222/mit.2026.1846
+[OA 2026-10-22] A sparse autoencoder and explainable machine learning framework for provenance tracing of historic blue bricks in architectural conservation | npj Heritage Science | cited 0 | https://doi.org/10.1038/s40494-026-03066-6
+[OA 2026-10-22] Enhancing efficiency and emission characteristics of a dual-fuel engine using spirulina biodiesel–ethanol blends with nanoparticles and hydrogen infusion | Scientific Reports | cited 0 | https://doi.org/10.1038/s41598-026-70754-5
+[OA 2026-10-22] Taylor-modified Johnson–Cook constitutive model for pure copper produced using PBF-LB with a green laser source | Materials Science in Additive Manufacturing | cited 0 | https://doi.org/10.36922/msam026360092
+[OA 2026-10-22] Wavenumber-Aware Deep Learning for Robust Analysis of Raman Spectra | arXiv (Cornell University) | cited 0 | https://doi.org/10.48550/arxiv.2610.30746
+[OA 2026-10-20] Monocular 3D bubble reconstruction: DNS-informed ray tracing and deep learning | arXiv (Cornell University) | cited 0 | https://doi.org/10.48550/arxiv.2610.28908
+[OA 2026-10-19] Trustworthy machine learning of diffractograms to prevent silent failure of apparently accurate models | Communications Materials | cited 0 | https://doi.org/10.1038/s43246-026-01354-z
+[arXiv 2026-10-29] Variational wavefunctions for ideal anyon gas: superfluid and skyrmion Hall crystal | http://arxiv.org/abs/2610.40657v1
+[arXiv 2026-10-29] Reconstructing hidden observables via quantum snapshot thermometry | http://arxiv.org/abs/2610.40652v1
+[arXiv 2026-10-29] Rethinking Neural Thickets Without Weight Perturbations | http://arxiv.org/abs/2610.40649v1
+[arXiv 2026-10-29] Read, Allocate, Route: Role-Coupled Tokenization for Pixel-Space Generative Transformers | http://arxiv.org/abs/2610.40647v1
+[arXiv 2026-10-29] From extreme weather to agricultural consequences with agentic AI | http://arxiv.org/abs/2610.40641v1
+[arXiv 2026-10-29] Probing Spatial State Representations in Visual Foundation Models | http://arxiv.org/abs/2610.40636v1
+[arXiv 2026-10-29] How many mutations does it take to evolve a new function? | http://arxiv.org/abs/2610.40635v1
+[arXiv 2026-10-29] Hyaluronic acid over-expression drives tissue architecture in both healthy and diseased states | http://arxiv.org/abs/2610.40634v1
+
+########## automatic beam center finding powder diffraction image ##########
+[OA] FAILED: HTTP 429
+[arXiv 2026-10-29] Variational wavefunctions for ideal anyon gas: superfluid and skyrmion Hall crystal | http://arxiv.org/abs/2610.40657v1
+[arXiv 2026-10-29] The $δ$ Scuti instability strip and period-luminosity relation as seen by TESS and Gaia DR3 | http://arxiv.org/abs/2610.40656v1
+[arXiv 2026-10-29] Elucidating the Design Space of LM Data Attribution | http://arxiv.org/abs/2610.40655v1
+[arXiv 2026-10-29] When Does Storage Complement Solar? Investment and Cost Recovery under Advanced Net Metering | http://arxiv.org/abs/2610.40650v1
+[arXiv 2026-10-29] Read, Allocate, Route: Role-Coupled Tokenization for Pixel-Space Generative Transformers | http://arxiv.org/abs/2610.40647v1
+[arXiv 2026-10-29] Adaptive Scenario Generation for KL-DRO Around a Learned Density Model | http://arxiv.org/abs/2610.40644v1
+[arXiv 2026-10-29] Luggage re-identification: A study of strategies towards a real-world application | http://arxiv.org/abs/2610.40643v1
+[arXiv 2026-10-29] Probing Spatial State Representations in Visual Foundation Models | http://arxiv.org/abs/2610.40636v1
+
+########## learned initial guess calibration scattering ##########
+[OA] FAILED: HTTP 429
+[arXiv 2026-10-29] Reconstructing hidden observables via quantum snapshot thermometry | http://arxiv.org/abs/2610.40652v1
+[arXiv 2026-10-29] SwapBot: Tool-Centric Robot Manipulation via Interchangeable End-Effectors and Tactile Sensing | http://arxiv.org/abs/2610.40646v1
+[arXiv 2026-10-29] Adaptive Scenario Generation for KL-DRO Around a Learned Density Model | http://arxiv.org/abs/2610.40644v1
+[arXiv 2026-10-29] From extreme weather to agricultural consequences with agentic AI | http://arxiv.org/abs/2610.40641v1
+[arXiv 2026-10-29] world2vec: Mechanistic world models through latent dynamics learning | http://arxiv.org/abs/2610.40637v1
+[arXiv 2026-10-29] ShallowDefend: Harnessing Shallow Safety Alignment for Multi-Turn Defender | http://arxiv.org/abs/2610.40627v1
+[arXiv 2026-10-29] Difficulty Calibration Across Time for Membership Inference in Diffusion Models | http://arxiv.org/abs/2610.40616v1
+[arXiv 2026-10-29] Exceptional Points as Witnesses of Non-Gaussian Noise | http://arxiv.org/abs/2610.40612v1
+
+# END
+
+
+========== 第5轮（技术修正轮） 2026-11-01T03:06:29.975Z ==========
+# OpenAlex/Crossref: from 2026-09-01; arXiv: 引号短语AND, 近10条按提交日倒序
+
+
+########## [OA+CR] neural network SAXS WAXS detector geometry calibration ##########
+[OA 2026-09-14] FastNano Liquid: An Automated Platform for Small‐Angle X‐ray Scattering‐Based Materials Discovery | Advanced Engineering Materials | https://doi.org/10.1002/adem.71267
+[OA 2026-09-21] APEXA: Execution-Integrity Enforcement for Multi-Agent LLM Automation of Synchrotron Data Reduction | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.24165
+[OA 2026-09-04] Hydration Effects in a Guanidine Hydrochloride-Pyruvic Acid Low-Transition-Temperature Mixture: Physicochemical Insights | ACS Physical Chemistry Au | https://doi.org/10.1021/acsphyschemau.6c00114
+[OA 2026-10-01] X-ray scattering insights into crystallization, degradation, and heterogeneity of mixed-halide perovskites | 中国科学通报：英文版 | https://doi.org/10.1016/j.scib.2026.10.055
+[OA 2026-09-01] 2026 NDE for Advanced Manufacturing Workshop Workshop Report | - | https://doi.org/10.2172/17076746
+[OA 2026-09-18] Extremely low thermal conductivity in rigid layered hybrid perovskites | Science Advances | https://doi.org/10.1126/sciadv.aee5269
+[OA 2026-10-01] Recent Advances in Sample Preparation for Cholesterol and Oxysterol Analysis in Complex Biological Matrices | Journal of Separation Science | https://doi.org/10.1002/jssc.70539
+[OA 2026-09-22] Recent Developments in Physical Sciences | - | https://doi.org/10.70593/978-81-6632-074-3
+[CR 2026-10-7] CT-Derived Three-Dimensional Geometry Reconstruction of a P- Type HPGe Detector for PENELOPE-Based Efficiency Calibration Using a 450-mL Marinelli Beaker | - | 10.21203/rs.3.rs-11158929/v1
+[CR 2027-2] A multi-region approach for the analysis of porous materials and gas–solid reactions using USAXS-SAXS-WAXS: application to CaO carbonation | Chemical Engineering Science | 10.1016/j.ces.2026.124555
+[CR 2027-1] A real-time infrared small target detector based on an illumination-aware degradation filtering network | Neural Networks | 10.1016/j.neunet.2026.109641
+[CR 2026-12] Corrigendum to “In situ early-stage CO₂ corrosion scale study with 2D synchrotron SAXS-WAXS” [Corros. Sci. 257 (2025) 113267] | Corrosion Science | 10.1016/j.corsci.2026.114335
+[CR 2026-10-20] Neural Network Calibration of the Heston Stochastic Volatility Model | Advances in Economics, Management and Political Sciences | 10.54254/2754-1169/2026.ld37802
+[CR 2027-3] Learn the fundamental characteristics of handwritten characters for a necessary neural network calibration | Pattern Recognition | 10.1016/j.patcog.2026.114899
+[CR 2026-9] Deep neural network calibration by reducing classifier shift with stochastic masking | Pattern Recognition | 10.1016/j.patcog.2026.113217
+[CR 2026-11] Systematic multiscale characterization and statistical analysis of mudrock microstructures by scanning SAXS and WAXS microscopy | Marine Geoscience and Energy Resources | 10.1016/j.marger.2026.207834
+
+########## [OA+CR] deep learning beam center detector distance diffraction regression ##########
+[OA 2026-09-25] New frontiers in the structural analysis of nanomaterials: a deep-learning leap to bridge the gap in crystalline order | IUCrJ | https://doi.org/10.1107/s2052252526008444
+[OA 2026-09-14] The determination of scattering cross-sections for non-equilibrium electrons in gaseous and liquid environments using deep learning | ResearchOnline - JCU (James Cook University) | https://doi.org/10.25903/9tz9-xz30
+[OA 2026-10-12] Image Priors for Single-Shot Coded Diffraction Phase Retrieval | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.17064
+[OA 2026-09-14] Machine Learning for Underwater Optical Wireless Communication Systems: A Comprehensive Survey | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.22294
+[OA 2026-09-17] From inverse error function to resolution enhancement: hardware-efficient virtual subdivision in single photon counting detectors | Opto-Electronics Review | https://doi.org/10.24425/opelre.2026.6090
+[OA 2026-10-19] Trustworthy machine learning of diffractograms to prevent silent failure of apparently accurate models | Communications Materials | https://doi.org/10.1038/s43246-026-01354-z
+[OA 2026-09-14] Extracting dipole orientations from asymmetric plasmonic nanostructures towards machine-learning-assisted spectropolarimetry | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.15661
+[OA 2026-10-08] Real-time classification of waste polyethylene using terahertz and raman spectroscopy integrated machine learning | Journal of Material Cycles and Waste Management | https://doi.org/10.1007/s10163-026-02748-4
+[OA 2026-09-22] Synchrotron X-ray-informed machine learning for local hardness mapping in a Cu–Ni–Ti–Hf–Zr high-entropy shape-memory alloy | Scientific Reports | https://doi.org/10.1038/s41598-026-70140-1
+[OA 2026-09-04] From optical architectures to actual deployment a review of online process spectroscopy in industrial environments | Frontiers in Chemistry | https://doi.org/10.3389/fchem.2026.1914581
+[CR 2026-10-20] A Surrogate-Assisted Deep Reinforcement Learning Framework for Gear Center Distance Optimization in Machine Tool Assembly | The International Journal of Advanced Manufacturing Technology | 10.1007/s00170-026-19377-8
+[CR 2026-9-28] BiLSTM-Based Deep Learning Model for Early Prediction of Student Academic Failure Risk in Digital and Distance Education | JOURNAL OF DIGITAL LEARNING AND DISTANCE EDUCATION | 10.56778/jdlde.v5i4.780
+[CR 2026-10-23] Extreme Quantile Regression with Deep Learning | Handbook of Statistics of Extremes | 10.1201/9781003404743-21
+[CR 2026-9-28] Deep Neural Networks for Regression | Introduction to Scientific Machine Learning for Engineering Students | 10.1142/9789819832491_0024
+[CR 2026-10-5] Comparative Analysis of Classical Machine Learning and Deep Learning Regression Models for Codon-Level k-mer Composition Analysis of the Nipah Virus Genome | - | 10.21203/rs.3.rs-10926709/v1
+[CR 2026-10-2] From learning webs to learning networks: heutagogy in contemporary open and distance learning | Open Learning: The Journal of Open, Distance and e-Learning | 10.1080/02680513.2026.2733385
+[CR 2026-10-15] Uncertainty-Aware AI-Based Deep Learning Regression Framework for Assessing Hurricane Wind Impacts on Buildings | AEI and IRD 2026 | 10.1061/9780784486955.013
+[CR 2026-9-8] A Regression-Based Deep Learning Framework for Pattern Identification and Construction of Pattern Transition Diagram in Reaction–Diffusion Systems | - | 10.21203/rs.3.rs-10332413/v2
+
+########## [OA+CR] differentiable azimuthal integration ##########
+[OA 2026-09-18] Azimuthal mode decomposition Particle in Cell algorithm for cylindrical plasma sources | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.21951
+[OA 2026-09-21] Adaptive fuzzy proportional integral derivative control for azimuth rotational positioning system | TELKOMNIKA (Telecommunication Computing Electronics and Control) | https://doi.org/10.12928/telkomnika.v24i5.27906
+[OA 2026-10-02] Fast evaluation of the azimuthal Fourier modes of the 3D Helmholtz Green’s function and their derivatives | Journal of Computational Physics | https://doi.org/10.1016/j.jcp.2026.115464
+[OA 2026-09-30] Learn-Then-Differentiate Gradient Estimation | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.38842
+[OA 2026-09-04] A Differentiable Neural Surrogate for Photon Propagation in Neutrino Telescopes | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.04695
+[OA 2026-09-30] A library for differentiable signal processing and machine learning on the sphere | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.39737
+[OA 2026-09-01] TomoSphero: Fast Differentiable Projector for Planetary and Solar Tomography on Spherical Grids | The Astrophysical Journal | https://doi.org/10.3847/1538-4357/ae6db5
+[OA 2026-09-04] Integrability and Hidden Symmetries of Root Kerr | eScholarship (California Digital Library) | no-doi
+[OA 2026-10-10] DeepTelecom: A Differentiable Multimodal Framework for Channel Twinning in Dynamic Heterogeneous Wireless Environments | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.14545
+[OA 2026-10-17] UDL-RT: A unified differentiable all-sky microwave radiative transfer model with learnable parameterizations | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.24627
+[CR 2026-12] The curse of dimensionality for integration of infinitely differentiable functions | Journal of Complexity | 10.1016/j.jco.2026.102074
+[CR 2026-10-13] Semiempirical Quantum Chemistry in the Age of ab initio Data and Differentiable Programming: III. Differentiable Complete Active Space Configuration Interaction | - | 10.26434/chemrxiv.15010422/v1
+[CR 2026-9-30] Bitopological Gerbes on Differentiable Stacks | - | 10.20944/preprints202609.2618.v1
+[CR 2026-9-30] Multi-Stakeholder Agent-Based Decision Framework for Sustainable Horizontal Well Placement: Field Validation of Ultra-Deep Azimuthal Resistivity Integration Across Three Well Examples | Scientific Contributions Oil and Gas | 10.29017/scog.v49i3.2164
+[CR 2026-9-16] Axial-azimuthal Fluid Modelling of the Hall Effect Thruster Discharge | - | 10.21203/rs.3.rs-10852565/v1
+[CR 2026-10-10] Review for "yancc: A GPU-accelerated, differentiable solver for neoclassical transport in tokamaks and stellarators" | - | 10.1088/1361-6587/aeb628/v2/review1
+[CR 2026-10-14] Review for "yancc: A GPU-accelerated, differentiable solver for neoclassical transport in tokamaks and stellarators" | - | 10.1088/1361-6587/aeb628/v2/review2
+[CR 2026-9-9] Physics-Informed Neural Networks as Differentiable Surrogates for 4D-Variational Data Assimilation | - | 10.22541/essoar.15008576/v1
+
+########## [OA+CR] machine learning automatic calibration Debye rings ##########
+[OA 2026-10-19] Trustworthy machine learning of diffractograms to prevent silent failure of apparently accurate models | Communications Materials | https://doi.org/10.1038/s43246-026-01354-z
+[OA 2026-10-21] Deep Learning for Advancing Ground-Penetrating Radar under Transport Infrastructure: A Comprehensive Review | Intelligent Transportation Infrastructure | https://doi.org/10.1093/iti/liag019
+[OA 2026-10-14] Deep Learning for High‐Resolution Synchrotron X‐Ray Microtomography of Biochar and Ash Materials: A Review | Advanced Engineering Materials | https://doi.org/10.1002/adem.71319
+[OA 2026-10-25] Orochi: A Physics-Grounded Python Package for Pair Distribution Function Analysis of Crystalline and Low-Dimensional Materials | ChemRxiv | https://doi.org/10.26434/chemrxiv.15010802/v2
+[OA 2026-09-03] Advances in coating thickness measurement using terahertz time-domain spectroscopy | Journal of Physics D Applied Physics | https://doi.org/10.1088/1361-6463/aea22f
+[OA 2026-10-01] Isomeric effects in propanol and butanol isomers quantified with microwave microfluidic spectroscopy | The Journal of Chemical Physics | https://doi.org/10.1063/5.0344277
+[OA 2026-10-02] Neural Posterior Estimation via Hierarchical Bayesian Distillation | uO Research (University of Ottawa) | https://doi.org/10.20381/ruor-32290
+[OA 2026-10-21] Distribution Function Analysis of Crystalline and Low-Dimensional Materials | ChemRxiv | https://doi.org/10.26434/chemrxiv.15010802/v1
+[OA 2026-09-22] A unified intermediate-resolution framework for modeling biomolecular condensates at near-cellular complexity | bioRxiv (Cold Spring Harbor Laboratory) | https://doi.org/10.64898/2026.09.15.751913
+[OA 2026-09-03] Surface-sensitive spectroscopic and structural characterization techniques for low-dimensional and three-dimensional materials: Principles, advances, and applications | Next Chemical Engineering | https://doi.org/10.1016/j.nxcen.2026.100104
+[CR 2026-10-27] Calibration | Machine Learning for Survival Analysis | 10.1201/9781003414292-7
+[CR 2026-10-20] Chapter 34: Automatic differentiation and backpropagation | A First Course in Machine Learning | 10.1137/1.9781611979145.ch34
+[CR 2026-10-13] A Transferable Calibration Model for FDR Soil Moisture Probes using Explainable Machine Learning | - | 10.22541/essoar.15010399/v1
+[CR 2026-10-12] Machine learning prediction of bismuth recovery from literature data: publication-grouped validation, anchored calibration and chemical interpretation | - | 10.26434/chemrxiv.15010302/v1
+[CR 2027-3] Toward automatic calibration of constitutive models through data-driven inverse learning | Computers and Geotechnics | 10.1016/j.compgeo.2026.108721
+[CR 2026-10-27] Calibration and Threshold Selection of Machine Learning Classifiers for Breast Tumour Diagnosis: A Decision-Support Study for Al-Driven Clinical Screening | - | 10.21203/rs.3.rs-11491081/v1
+[CR 2026-10-20] Comparative Evaluation of Machine Learning Models for Heart Disease Prediction: Performance, Calibration, Threshold Selection, and Explainability | - | 10.21203/rs.3.rs-11027885/v1
+[CR 2026-9-1] Machine Learning Validation Pipelines: From Tabular Benchmarking to Conformal Calibration and Execution-Grounded Agentic Testing | - | 10.21203/rs.3.rs-10875799/v1
+
+########## [OA+CR] CNN synchrotron diffraction calibration ##########
+[OA 2026-10-14] Deep Learning for High‐Resolution Synchrotron X‐Ray Microtomography of Biochar and Ash Materials: A Review | Advanced Engineering Materials | https://doi.org/10.1002/adem.71319
+[OA 2026-10-02] A comparative study of convolutional neural networks and vision transformers for quantitative phase analysis from X-ray diffraction | Results in Engineering | https://doi.org/10.1016/j.rineng.2026.113313
+[OA 2026-09-28] Unsupervised semantic segmentation in synchrotron computed tomography with self-correcting pseudo labels | Machine Learning Science and Technology | https://doi.org/10.1088/2632-2153/aead47
+[OA 2026-09-23] A unified self-supervised framework for single-frame Fresnel CDI and overlapped ptychography | Optics Express | https://doi.org/10.1364/oe.607138
+[OA 2026-10-02] Neural Posterior Estimation via Hierarchical Bayesian Distillation | uO Research (University of Ottawa) | https://doi.org/10.20381/ruor-32290
+[OA 2026-09-03] Surface-sensitive spectroscopic and structural characterization techniques for low-dimensional and three-dimensional materials: Principles, advances, and applications | Next Chemical Engineering | https://doi.org/10.1016/j.nxcen.2026.100104
+[OA 2026-10-19] Trustworthy machine learning of diffractograms to prevent silent failure of apparently accurate models | Communications Materials | https://doi.org/10.1038/s43246-026-01354-z
+[OA 2026-09-28] Powder bed fusion of hard-to-weld Ni-based superalloys: A review of thermal history, in situ monitoring, and crack suppression | Journal of Materials Research and Technology | https://doi.org/10.1016/j.jmrt.2026.09.234
+[OA 2026-09-04] Machine Learning–Assisted Exploration of the Structural, Dielectric, and Ferroelectric Properties of CaTiO3 Nanoceramics | Digest Journal of Nanomaterials and Biostructures | https://doi.org/10.31083/djnb57746
+[OA 2026-09-05] Rapid non-destructive mineral identification of geo-energy reservoirs using macro-lens infrared thermal imaging | International Journal of Coal Science & Technology | https://doi.org/10.1007/s40789-026-00927-0
+[CR 2026-9-14] <i>MIR2-Toolkit</i>
+                    : a Python program for multiple-image radiography analysis with integrated silicon-crystal diffraction modeling tools | Journal of Synchrotron Radiation | 10.1107/s1600577526008696
+[CR 2026-10-7] Review for "Operando Synchrotron X-ray Diffraction Study of Reference Electrode: Impact, Accuracy and Stability in Lithium-ion Pouch Cells" | - | 10.1039/d6eb00114a/v2/review3
+[CR 2026-10-6] Review for "Operando Synchrotron X-ray Diffraction Study of Reference Electrode: Impact, Accuracy and Stability in Lithium-ion Pouch Cells" | - | 10.1039/d6eb00114a/v2/review2
+[CR 2026-9-23] Review for "Operando Synchrotron X-ray Diffraction Study of Reference Electrode: Impact, Accuracy and Stability in Lithium-ion Pouch Cells" | - | 10.1039/d6eb00114a/v2/review1
+[CR 2026-9-18] Systematic investigation of the diffraction efficiency of sub-15 nm resolution soft X-ray zone plates via simulation and measurement | Journal of Synchrotron Radiation | 10.1107/s160057752600860x
+[CR 2026-9-2] Review for "Calibration-aware CNN-U-Net syndrome decoding for a two-patch surface-colour code on a superconducting processor" | - | 10.1088/1402-4896/aea656/v2/review1
+[CR 2026-9-7] Review for "Calibration-aware CNN-U-Net syndrome decoding for a two-patch surface-colour code on a superconducting processor" | - | 10.1088/1402-4896/aea656/v2/review2
+[CR 2026-10-10] Decision letter for "Operando Synchrotron X-ray Diffraction Study of Reference Electrode: Impact, Accuracy and Stability in Lithium-ion Pouch Cells" | - | 10.1039/d6eb00114a/v2/decision1
+
+########## [OA+CR] neural network powder diffraction instrument calibration regression ##########
+[OA 2026-10-02] A comparative study of convolutional neural networks and vision transformers for quantitative phase analysis from X-ray diffraction | Results in Engineering | https://doi.org/10.1016/j.rineng.2026.113313
+[OA 2026-09-24] X2SBench: an open benchmark for evaluating crystal structure determination from powder diffraction | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.29751
+[OA 2026-09-01] Strength Prediction and Mechanism Analysis of Fiber-Reinforced Soil Based on RBF Neural Network | Civil Engineering Journal | https://doi.org/10.28991/cej-2026-012-09-01
+[OA 2026-10-02] Neural Posterior Estimation via Hierarchical Bayesian Distillation | uO Research (University of Ottawa) | https://doi.org/10.20381/ruor-32290
+[OA 2026-09-08] AI‐Assisted Waste Salt Detection: Intelligent Transformation of Reagents, Instruments, and Methods | ChemBioEng Reviews | https://doi.org/10.1002/cben.70069
+[OA 2026-10-12] Integrating Ion Mobility-Resolved Tandem Mass Spectrometry and Microcrystal Electron Diffraction for Structural Elucidation | Analytical Chemistry | https://doi.org/10.1021/acs.analchem.6c02165
+[OA 2026-09-12] NIR spectroscopy for personal screening | Warwick Research Archive Portal (University of Warwick) | https://doi.org/10.82444/warw.33673279
+[OA 2026-09-18] Multimodal Visual Sensing of Temperature and Pressure: From Spectroscopic Readout to Multiple Linear Regression-Enhanced RGB Analysis | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.25075
+[OA 2026-09-04] From optical architectures to actual deployment a review of online process spectroscopy in industrial environments | Frontiers in Chemistry | https://doi.org/10.3389/fchem.2026.1914581
+[OA 2026-09-19] Optimization of pressure-assisted enzymatic treatment for fiber solubilization and structural modification of Korean cabbage by-products | Food Chemistry X | https://doi.org/10.1016/j.fochx.2026.104461
+[CR 2026-10] Uncertainty evaluation and calibration of neural network regression for melt viscosity | Journal of Non-Crystalline Solids | 10.1016/j.jnoncrysol.2026.124270
+[CR 2026-9-14] Estimating the Maximum Usable Frequency from WSPR Observations: Windowed Frequency–Distance Factor Regression with a Lightweight Neural Network | - | 10.22541/essoar.15008772/v1
+[CR 2026-10-26] Performance Comparison of SIMEX and Regression Calibration for Measurement Error Correction in Nonparametric Regression | Comprehensive Journal of Science | 10.65405/45x30y52
+[CR 2026-12] Rod-shaped nanofluid transport in interlaced waveform microchannels based on Physics-Informed Neural Network | Powder Technology | 10.1016/j.powtec.2026.122970
+[CR 2027-1] Modeling of local Nusselt number in random particle packings: A graph neural network approach | Powder Technology | 10.1016/j.powtec.2026.123063
+[CR 2026-10-20] Neural Network Calibration of the Heston Stochastic Volatility Model | Advances in Economics, Management and Political Sciences | 10.54254/2754-1169/2026.ld37802
+[CR 2027-3] Learn the fundamental characteristics of handwritten characters for a necessary neural network calibration | Pattern Recognition | 10.1016/j.patcog.2026.114899
+[CR 2026-9] Deep neural network calibration by reducing classifier shift with stochastic masking | Pattern Recognition | 10.1016/j.patcog.2026.113217
+
+########## [OA+CR] automatic beam center finding powder diffraction image ##########
+[OA 2026-10-26] Automatic indexing of wide-band quasi-Laue neutron diffraction patterns of large unit cells | arXiv (Cornell University) | no-doi
+[OA 2026-09-18] Synthesis of Shape Memory Composites by Laser Powder Bed Fusion | Physics and Chemistry of Solid State | https://doi.org/10.15330/pcss.27.3.532-541
+[OA 2026-09-18] Volumetric Infiltration of Brushite and Monetite Cements into Laser Powder Bed Fusion Ti-6Al-4V Lattices: A Feasibility Study of Lattice Geometry and Cement Formulation | Materials | https://doi.org/10.3390/ma19183973
+[OA 2026-10-10] Effect of Nano‐CeO 2 Powder on Microstructure and Wear Resistance of Deloro 40 Coating Prepared by Laser Additive Manufacturing | steel research international | https://doi.org/10.1002/srin.70715
+[OA 2026-10-02] Framework-preserving structuring of zeolites for continuous-flow water treatment: From powders to additively manufactured and cold-consolidated monoliths | Journal of Water Process Engineering | https://doi.org/10.1016/j.jwpe.2026.111030
+[OA 2026-10-15] Use of imaging technologies to support complex generic drug development | Biophotonics discovery. | https://doi.org/10.1117/1.bios.3.4.043106
+[OA 2026-09-14] Physics-Informed Neural Network (PINN) – Based modelling and post-processing investigation in Laser Powder Bed Fusion (LPBF) of aluminum alloys | AMS Dottorato Institutional Doctoral Theses Repository (University of Bologna) | https://doi.org/10.48676/unibo/amsdottorato/13052
+[OA 2026-10-01] Effects of electron beam irradiation on the structural characteristics, functional properties, antioxidant capacity, and in vitro digestibility of distillers’ grains | LWT | https://doi.org/10.1016/j.lwt.2026.120070
+[OA 2026-09-02] Power ultrasound for enhanced particle dispersion and mechanical performance in cement-based materials: a quantitative image analysis approach | Scientific Reports | https://doi.org/10.1038/s41598-026-69521-3
+[OA 2026-09-28] Microstructural stability and mechanical performance of friction stir and electron beam welded Al-Mg-Si joints subjected to post-welding heat treatment | Materials Chemistry and Physics | https://doi.org/10.1016/j.matchemphys.2026.133172
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup9.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup6.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup7.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup2.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup3.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup8.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup5.txt
+[CR 2026-9-11] Interesting hurdles in the solution of pharmaceutical crystal structures using powder diffraction data | - | 10.1107/s2056989026009382/oi2043sup4.txt
+
+########## [OA+CR] learned initial guess calibration scattering ##########
+[OA 2026-10-22] Who Is Sycophantic to Whom? Confident LLMs, Human Deference, and the Collapse of Trust Calibration | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.31579
+[OA 2026-10-08] Deep preferential evolution guided by pairwise comparisons enables motion correction in photoacoustic tomography | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.12273
+[OA 2026-09-25] Learning-based physics-enhanced modeling and inline material characterization for electromagnetics | - | https://doi.org/10.63959/chalmers.dt/5921
+[OA 2026-09-21] The Payne Zero Project I: Stellar Spectra from Physical Models in Seconds | The Open Journal of Astrophysics | https://doi.org/10.33232/001c.171333
+[OA 2026-09-28] Climate-informed cryospheric reanalysis via hierarchical Bayesian data assimilation | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.36077
+[OA 2026-09-30] RIS-CFH: Physical Layer Authentication via Channel Fingerprint Hopping Using a Secret Pseudo-Random Phase Sequence Against an Adaptive Adversary | International Journal of Electrical and Electronics Research | https://doi.org/10.37391/ijeer.140322
+[OA 2026-10-24] A Differentiable Framework for Inverse Identification of Heterogeneous Cohesive Laws | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2610.33711
+[OA 2026-09-16] LocQE: Principled Domain Adaptation for Localisation Quality Estimation by Leveraging Post-Edits | arXiv (Cornell University) | https://doi.org/10.48550/arxiv.2609.18720
+[OA 2026-09-25] The JWST/NIRCam Scattered Light Disks Guaranteed Time Observing 2780 Program: Panchromatic Coronagraphic Imaging of the HD 10647, HD 32297, HD 61005, HD 107146, and HD 181327 Debris Disk Systems | The Astrophysical Journal | https://doi.org/10.3847/1538-4357/ae9d6f
+[OA 2026-09-04] A Representation-Based Sum-Product Neural Network for Higgs Boson Event Classification | Özgür Yayınları eBooks | https://doi.org/10.58830/ozgur.pub1403.c5646
+[CR 2026-9-11] LC-MSCKF: Hybrid Learned and Innovation-Feedback Covariance Calibration
+	for Visual-Inertial Odometry | - | 10.21203/rs.3.rs-10806954/v1
+[CR 2026-9-1] Ouch! When regulators publicly second-guess a corporation’s security choices — Six Lessons Learned the hard way in the 2025 UK ICO Capita Group Settlement | Computer Law Review International | 10.9785/cri-2026-270302
+[CR 2026-10-10] Development and Initial Calibration of a Five-Dimensional Sustainability-Focused Digital Marketing Scale for Thai SMEs | Administrative Sciences | 10.3390/admsci16100503
+[CR 2026-10] From Initial Confidence to Professional Awareness: Mixed-Methods Evidence of Calibration Through Outreach-Based Teaching | IEEE Transactions on Education | 10.1109/te.2026.3725249
+[CR 2026-11] A linear calibration method for scattering semiconductors using the Kubelka-Munk function | iScience | 10.1016/j.isci.2026.117932
+[CR 2026-12-31] An Educated Guess | Braided Identities | 10.1515/9781772128871-004
+[CR 2026-10-26] Development and initial psychometric calibration of a screening instrument for receptive-analytical skills in critical thinking: TKM-Chem for Kazakhstani pre-service chemistry teachers | Frontiers in Education | 10.3389/feduc.2026.1959270
+[CR 2026-10-1] DAMS-ASCNet: Coupled Scattering-Aware Representation and Class-Aware Prototype Calibration for Open-Set SAR Target Recognition | Remote Sensing | 10.3390/rs18193372
+
+########## [arXiv] detector geometry AND neural network ##########
+[arXiv 2026-10-12] Equation of State Classification of Core-Collapse Supernovae with a Network of Gravitational-Wave Detectors | http://arxiv.org/abs/2610.16130v1
+[arXiv 2026-10-08] Using Geometric Deep Learning for the Detection of the Diffuse Supernova Neutrino Background in Water-Cherenkov Detectors | http://arxiv.org/abs/2610.12042v1
+[arXiv 2026-09-23] Physics-Informed Self-Supervised Learning for Joint Wire Calibration and Interaction Position Reconstruction in Multi-Wire Parallel Plate Avalanche Counters | http://arxiv.org/abs/2609.28604v1
+[arXiv 2026-09-22] Impact of neutral fluxes and signal significance optimization on semi-exclusive $pp \to t\bar{t}$ production via deep learning training | http://arxiv.org/abs/2609.26928v1
+[arXiv 2026-09-03] Reconstruction of Shower-like Events in NEON Using Likelihood and Graph Neural Network Methods | http://arxiv.org/abs/2609.03417v1
+[arXiv 2026-04-15] Enhancing Event Reconstruction in Hyper-Kamiokande with Machine Learning: A ResNet Implementation | http://arxiv.org/abs/2604.13503v2
+[arXiv 2026-04-12] An AI-based Detector Simulation and Reconstruction Model for the ALEPH Experiment at LEP | http://arxiv.org/abs/2604.11834v2
+[arXiv 2026-03-02] Simulation Study on the Discrimination of $0νββ$ Events from Single-Electron Events Using Orthogonal-Strip HPGe Detectors | http://arxiv.org/abs/2603.01830v1
+[arXiv 2025-12-04] Unveiling gravitational waves from core-collapse supernovae with MUSE | http://arxiv.org/abs/2512.04804v1
+[arXiv 2025-09-12] NuGraph2 with Context-Aware Inputs: Physics-Inspired Improvements in Semantic Segmentation | http://arxiv.org/abs/2509.10684v3
+
+########## [arXiv] beam center AND diffraction AND deep learning ##########
+[arXiv 2025-08-05] 4D-PreNet: A Unified Preprocessing Framework for 4D-STEM Data Analysis | http://arxiv.org/abs/2508.03775v2
+
+########## [arXiv] azimuthal integration AND differentiable ##########
+[arXiv] none
+
+########## [arXiv] Debye rings AND calibration ##########
+[arXiv] none
+
+########## [arXiv] synchrotron AND calibration AND convolutional ##########
+[arXiv 2025-12-10] Real-Time-Capable Betatron Tune Measurement from Schottky Spectra Using Deep Learning and Uncertainty-Aware Kalman Filtering | http://arxiv.org/abs/2512.09302v1
+
+########## [arXiv] powder diffraction AND regression AND detector ##########
+[arXiv] none
+
+# END round 5

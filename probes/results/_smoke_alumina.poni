@@ -1,0 +1,12 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# Auto-calibrated 2026-10-31 18:11:06 by probes/solver_core.py + poni_out.py (B route)
+# smoke frame al2o3_0000, phase Al2O3
+PixelSize1: 0.000103358
+PixelSize2: 0.00010253
+Distance: 0.115813830773
+Poni1: 0.0559478662961
+Poni2: 0.0540651811352
+Rot1: 0.0116994708186
+Rot2: -0.0160359986001
+Rot3: 0
+Wavelength: 7.084811024e-11

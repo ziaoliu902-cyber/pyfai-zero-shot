@@ -1,0 +1,75 @@
+# 路径2数据侦察（Zenodo + pyFAI测试图库） 2026-11-01
+
+## 一、已知5笔验活（10-25交接文档登记）
+
+- zenodo.4746349 [open] Raw data for "X-ray studies bridge the molecular and macro length scales during the emergence of CoO assemblies"
+  files(6): HERFD-XANES.zip(8MB), TEM and SEM.zip(28MB), total_scattering_in-situ_160C.zip(2493MB), total_scattering_in-situ_140C.zip(4023MB), SAXS and PXRD.zip(23MB), total_scattering_ex-situ_and_references.zip(114MB)
+- zenodo.12633113 [open] Data for Publication "Nucleation behavior of SnS2 on thiol functionalized SAMs during solution based atomic layer deposition"
+  files(1): publicData.zip(81MB)
+- zenodo.14671978 [open] SAXS data for RTX719 K983R. Deletion mutant of pertussis adenylate cyclase toxin – SASDPR3
+  files(5): by_frame.tar.gz(51MB), raw.tar.gz(535MB), chromatograph.png(0MB), sec.tar.gz(15MB), uv.tar.gz(4MB)
+- zenodo.18548583 [open] Microsecond X-ray reflectometry measurements of an Au (300 A) | Cr (80 A) | Si sample
+  files(22): 9.95 ms_50 Hz triangle.h5(11MB), 2.45 ms_200 Hz triangle.h5(10MB), 950 μs_500 Hz sine.h5(10MB), 950 μs_500 Hz triangle.h5(9MB), 450 μs_1000 Hz sine.ort(14MB), 950 μs_500 Hz sine.ort(14MB) ...
+- zenodo.6557385 [open] X-ray scattering data from Norway spruce at different moisture conditions
+  files(72): RH10_bgsub_waxs_pol90_vert_ibg.txt(0MB), RH95_1st_bgsub_saxs_pol90.txt(0MB), RH70_bgsub_saxs.txt(13MB), RH10_bgsub_waxs_pol90.txt(1MB), RH95_2nd_bgsub_waxs_pol90_vert_ibg.txt(0MB), RH10_bgsub_waxs.txt(68MB) ...
+
+## 二、新候选扫描（Zenodo API）
+
+
+### query: powder diffraction two-dimensional detector calibration images
+- [23851504] (2024) Sahi's higher correlation inequalities on the three-dimensional Boolean lattice | access:open
+- [23851108] (2026) BOOSTR conformal UQ: code and results for distribution-free uncertainty quantification of accelerator control surrogates under operational drift | access:open
+- [23636466] (2026) Code and per-draw results for: Evaluating few-shot model updating in construction-materials machine learning: support–query separation at the unit of deployment | access:open
+- [23851102] (2026) P300-BCI EEG dataset: sitting vs. supine posture | access:open
+- [23851069] (2026) Data for "Polarization instability of unpolarized excited states in trapped two-component Bose–Einstein condensates" | access:open
+- [23585274] (2026) Primary AI literacy pedagogy before and after generative AI: A critical review | access:open
+
+### query: silver behenate calibration SAXS raw images
+- [23851504] (2024) Sahi's higher correlation inequalities on the three-dimensional Boolean lattice | access:open
+- [23851298] (2026) Class Judge AI v2.0: PlantUML Benchmark, LLM Run Logs, and Code for Evaluating Quantized Open-Weight LLMs as UML Class Diagram Graders | access:open
+- [23851270] (2026) Replication package for "Same score, different institutional orders: academic selection, school segregation and the comparative reading of PISA's equity gradient" | access:open
+- [23851108] (2026) BOOSTR conformal UQ: code and results for distribution-free uncertainty quantification of accelerator control surrogates under operational drift | access:open
+- [23525952] (2026) Supporting Data for "Crosslink Network Heterogeneity and Its Impact on Thermal and Mechanical Properties of Epoxy Nanocomposites" | access:open
+- [23636466] (2026) Code and per-draw results for: Evaluating few-shot model updating in construction-materials machine learning: support–query separation at the unit of deployment | access:open
+
+### query: LaB6 calibration powder diffraction detector
+- [23851108] (2026) BOOSTR conformal UQ: code and results for distribution-free uncertainty quantification of accelerator control surrogates under operational drift | access:open
+- [23636466] (2026) Code and per-draw results for: Evaluating few-shot model updating in construction-materials machine learning: support–query separation at the unit of deployment | access:open
+- [23851102] (2026) P300-BCI EEG dataset: sitting vs. supine posture | access:open
+- [23850553] (2026) Identifiability and Scheduling for Shared-Timestamp Polynomial Sensor Calibration | access:open
+- [23850567] (2026) PHARMACEUTICAL STUDY ON DEVELOPMENT OF NOOLA MALAHARA - TOPICAL DOSAGE FORM | access:open
+- [23850342] (2026) A RESEARCH ON GREEN SYNTHESIS, ANALYTICAL CHARACTERISATION AND DEVELOPMENT OF DOXORUBICIN-LOADED SILVER NANOPARTICLES USING COLUMN-FRACTIONATED CATHARANTHUS ROSEUS STEM EXTRACT | access:open
+
+### query: CeO2 calibrant diffraction frame
+- [23850389] (2026) Device-Aware Weighted Gerchberg-Saxton and Flicker-Bounded Phase-Continuous Sequences for Holographic Optical Trap Arrays | access:open
+- [23847121] (2026) Fairness in histopathology AI — systematic review: extraction, audit, and verification artifacts (88-study corpus, manuscript v0.7.0) | access:open
+- [23846020] (2026) Light-Speed Travel via Quartz-Coil Plasma Resonance: Temporal Light, Diffraction Mapping, and Energy Level Transitions | access:open
+- [23844053] (2026) The Observability Boundary in AI Safety Telemetry | access:open
+- [23845145] (2026) KD-SLAM: One KD-Tree to deskew them all | access:open
+- [23843474] (2026) Why Privacy Is Taught, Not Just Protected: A Relational Model for Children's Use of Large Language Models. | access:open
+
+### query: GIWAXS raw detector images dataset
+- [23851072] (2026) Anxiety and depression among cancer patients in Mali: analysis code and data dictionary | access:open
+- [23851504] (2024) Sahi's higher correlation inequalities on the three-dimensional Boolean lattice | access:open
+- [23851146] (2026) Healthy aging dataset | access:open
+- [23851298] (2026) Class Judge AI v2.0: PlantUML Benchmark, LLM Run Logs, and Code for Evaluating Quantized Open-Weight LLMs as UML Class Diagram Graders | access:open
+- [23851270] (2026) Replication package for "Same score, different institutional orders: academic selection, school segregation and the comparative reading of PISA's equity gradient" | access:open
+- [23851302] (2026) Dataset AI Value-Sensitive | access:open
+
+### query: wide angle X-ray scattering raw 2D images calibration
+- [23851504] (2024) Sahi's higher correlation inequalities on the three-dimensional Boolean lattice | access:open
+- [23851298] (2026) Class Judge AI v2.0: PlantUML Benchmark, LLM Run Logs, and Code for Evaluating Quantized Open-Weight LLMs as UML Class Diagram Graders | access:open
+- [23851270] (2026) Replication package for "Same score, different institutional orders: academic selection, school segregation and the comparative reading of PISA's equity gradient" | access:open
+- [23851108] (2026) BOOSTR conformal UQ: code and results for distribution-free uncertainty quantification of accelerator control surrogates under operational drift | access:open
+- [23525952] (2026) Supporting Data for "Crosslink Network Heterogeneity and Its Impact on Thermal and Mechanical Properties of Epoxy Nanocomposites" | access:open
+- [23636466] (2026) Code and per-draw results for: Evaluating few-shot model updating in construction-materials machine learning: support–query separation at the unit of deployment | access:open
+
+### query: synchrotron powder diffraction raw frames dataset
+- [23851072] (2026) Anxiety and depression among cancer patients in Mali: analysis code and data dictionary | access:open
+- [23851146] (2026) Healthy aging dataset | access:open
+- [23851298] (2026) Class Judge AI v2.0: PlantUML Benchmark, LLM Run Logs, and Code for Evaluating Quantized Open-Weight LLMs as UML Class Diagram Graders | access:open
+- [23851270] (2026) Replication package for "Same score, different institutional orders: academic selection, school segregation and the comparative reading of PISA's equity gradient" | access:open
+- [23851302] (2026) Dataset AI Value-Sensitive | access:open
+- [23851108] (2026) BOOSTR conformal UQ: code and results for distribution-free uncertainty quantification of accelerator control surrogates under operational drift | access:open
+
+# END

@@ -1,0 +1,12 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# Auto-calibrated 2026-10-31 23:11:27 by probes/solver_core.py + poni_out.py (B route)
+# ceria 150mm, B-route circle+tilt
+PixelSize1: 0.000172
+PixelSize2: 0.000172
+Distance: 0.148581349263
+Poni1: 0.213738485963
+Poni2: 0.21424541243
+Rot1: 0.0110493698633
+Rot2: 0.00723370934766
+Rot3: 0
+Wavelength: 9.72386e-11

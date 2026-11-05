@@ -1,0 +1,12 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# Auto-calibrated 2026-11-05 09:52:21 by probes/solver_core.py + poni_out.py (B route)
+# ceria 400mm, classic-first canvas (geo)
+PixelSize1: 0.000172
+PixelSize2: 0.000172
+Distance: 0.399568678225
+Poni1: 0.214814326105
+Poni2: 0.215038217909
+Rot1: 0.0103869602615
+Rot2: 0.00286012552886
+Rot3: 0
+Wavelength: 9.72386e-11
