@@ -47,4 +47,5 @@ MIT (see LICENSE). The manuscript draft is provided for transparency.
 
 ## Citation
 
+Repository: https://github.com/ziaoliu902-cyber/pyfai-zero-shot
 [DOI placeholder — filled at deposition time]

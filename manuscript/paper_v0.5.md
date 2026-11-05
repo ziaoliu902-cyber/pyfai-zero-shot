@@ -413,8 +413,10 @@ single method — learned or geometric.
 
 ## Data availability
 
-Synthetic generator, solver library and probes are available from the
-authors. Both real datasets are the publicly distributed pyFAI test
+Synthetic generator, solver library and probes are openly available at
+https://github.com/ziaoliu902-cyber/pyfai-zero-shot; the exact version
+underlying this paper is archived on Zenodo (DOI
+10.5281/zenodo.XXXXXXX, to be assigned). Both real datasets are the publicly distributed pyFAI test
 images (https://www.silx.org/pub/pyFAI/testimages/), originally
 acquired at the D2AM beamline (BM02, ESRF): the CeO2 multi-distance
 calibrant frames (Pilatus 6M, 172 µm pixels, λ = 0.9724 Å, nominal
