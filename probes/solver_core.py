@@ -2,7 +2,7 @@
 """solver_core.py：相库驱动的通用峰位几何解算器（B 路线核心库）。
 
 2026-10-31 从 ring_fit.py（ceria 专用脚本）泛化：
-- 相库驱动：q 表来自 torchfai.phases（CeO2/LaB6/Si/Al2O3/Quartz/AgBh）
+- 相库驱动：q 表来自 torchfai.phases（CeO2/LaB6/Si/Al2O3/Quartz/AgBh/AgSt）
 - 多相自动识别：逐相求解，按 环数↓ 票数↓ rms↑ 择优
 - NN 初始化可选：无 NN 时中心取画布中心、D 全域投票（盆域门自动关闭）
 - 画布无关：任意 (canvas, px_m) 组合
@@ -313,6 +313,104 @@ def refine_center_circles(canvas, c0, n_iter=4, max_rings=6):
     return cx, cy, locals().get('last_n', 0), locals().get('last_sig', 9.0)
 
 
+# ------------------------------------------------- 找环灵敏度（2026-11-06）
+# 0=标准（默认，行为与旧版逐位一致）；1=高；2=极高。
+# 高档降低 prominence 门并要求峰高 > 背景 + k·MAD，弱环/低对比数据能多捡几条；
+# 默认档不改变任何阈值，保证回归可复现。
+_RING_SENS = 0
+_SENS_PROM = (1.0, 0.40, 0.15)
+_SENS_K = (0.0, 0.0, 0.0)   # 不额外加噪声门：灵敏档只降显著度门
+
+
+def set_ring_sensitivity(level):
+    global _RING_SENS
+    _RING_SENS = int(max(0, min(2, level)))
+
+
+# ---------------------------------------------------------------- mask 支持
+# 2026-11-06：用户可给 bool 掩膜（True=无效：束流挡盘/模块缝/坏点/遮挡）。
+# 池化时按块降采样（块内 >=50% 无效 -> 画布像素无效）；径向谱与 2D 精化按
+# 形状查表取用，避免把 mask 参数一路透传改遍所有调用点。
+_MASK_REG = {}
+
+
+def pool_mask(mask, s):
+    """原生 mask(True=无效) -> 画布 mask；与 to_canvas 的裁剪池化同形状。"""
+    m = np.asarray(mask, bool)
+    H, W = m.shape
+    s = max(int(s), 1)
+    H2, W2 = H // s, W // s
+    if H2 == 0 or W2 == 0:
+        return np.zeros((max(H2, 1), max(W2, 1)), bool)
+    blk = m[:H2 * s, :W2 * s].reshape(H2, s, W2, s)
+    return blk.mean(axis=(1, 3)) >= 0.5
+
+
+def register_mask(mask, s):
+    if mask is None:
+        return None
+    mc = pool_mask(mask, s)
+    _MASK_REG[tuple(mc.shape)] = mc
+    return tuple(mc.shape)
+
+
+def clear_masks():
+    _MASK_REG.clear()
+
+
+# ---------------- 模块缝自动 mask(B7,2026-11-07) ----------------
+_AUTO_GAP = True     # 探针/消融可关;zoo 判决:Pilatus 全中零误报,
+                     # Eiger(已校正)零动作,Frelon 织构暗带 P95 判据全排除
+
+
+def auto_gap_mask(img, rel=0.05, min_w=2, max_w=80, p95_rel=0.20):
+    """行列恒暗带检测 → 模块缝/边界死区 mask。
+
+    判据(探针 _b7_gapmask_probe.py,2026-11-07 判决):
+      暗带:行/列中位 < rel×全局中位(Pilatus 缝值=-1 → 必中);
+      真缝:带内 P95 < p95_rel×全局中位(无信号穿带——织构暗带必有环穿过)
+            或带内死0(≤0)比例>98%。
+    返回 bool mask(True=无效)或 None(无真缝,零开销不注册)。
+    """
+    import numpy as _np
+    img = _np.asarray(img, dtype=_np.float64)
+    if img.ndim != 2 or min(img.shape) < 64:
+        return None
+    gm = float(_np.median(img))
+    if gm <= 0:
+        return None
+    H, W = img.shape
+    out = _np.zeros((H, W), bool)
+    n = 0
+    for axis, med in ((0, _np.median(img, axis=1)),
+                      (1, _np.median(img, axis=0))):
+        dark = med < rel * gm
+        i = 0
+        while i < len(dark):
+            if dark[i]:
+                j = i
+                while j + 1 < len(dark) and dark[j + 1]:
+                    j += 1
+                w = j - i + 1
+                if min_w <= w <= max_w:
+                    sl = ((slice(i, j + 1), slice(None)) if axis == 0
+                          else (slice(None), slice(i, j + 1)))
+                    b = img[sl]
+                    true_gap = (float(_np.percentile(b, 95)) < p95_rel * gm
+                                or float((b <= 0).mean()) > 0.98)
+                    if true_gap:
+                        out[sl] = True
+                        n += 1
+                i = j + 1
+            else:
+                i += 1
+    return out if n else None
+
+
+def _mask_for(shape):
+    return _MASK_REG.get(tuple(shape))
+
+
 def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
     """均值径向谱 + find_peaks + 抛物线内插。返回 [(r_px, 峰高), ...] 升序。
     · 中位数方案已证伪：环像素也是少数，median 把环一起杀。
@@ -327,8 +425,14 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
     r = np.hypot(yy - cy, xx - cx)
     rmax = float(r.max())
     idx = (r / rmax * (nb - 1)).astype(np.int32).ravel()
-    v = canvas.astype(np.float64).ravel()
-    cnt = np.bincount(idx, minlength=nb)
+    _m = _mask_for(canvas.shape)
+    if _m is not None:
+        valid = ~_m.ravel()
+        v = np.where(valid, canvas.astype(np.float64).ravel(), 0.0)
+        cnt = np.bincount(idx, weights=valid.astype(np.float64), minlength=nb)
+    else:
+        v = canvas.astype(np.float64).ravel()
+        cnt = np.bincount(idx, minlength=nb)
     prof = np.bincount(idx, weights=v, minlength=nb) / np.maximum(cnt, 1)
     good = cnt > 0.15 * np.median(cnt[cnt > 0])
     bg = float(np.median(prof[cnt > 0]))
@@ -343,12 +447,24 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
     _rr = (np.arange(nb) + 0.5) * bin_px
     _outer = _rr >= min_r
     p_ref = float(prof[_outer].max()) if _outer.any() else float(prof.max())
-    pk, _ = find_peaks(prof, prominence=prom * p_ref, distance=12)
+    _lv = _RING_SENS
+    _pdet = None
+    if _lv > 0:
+        # 去背景检测：减掉 ~51 bin 滑动中位数，陡背景上的弱环才显出来
+        from scipy.ndimage import median_filter as _mf
+        _pdet = prof - _mf(prof, size=51, mode="nearest")
+        _ref = float(_pdet[_outer].max()) if _outer.any() else float(_pdet.max())
+        pk, _ = find_peaks(_pdet, prominence=max(prom * _ref * _SENS_PROM[_lv], 1e-12),
+                           distance=12)
+    else:
+        pk, _ = find_peaks(prof, prominence=prom * p_ref, distance=12)
     out = []
     for p in pk:
         if p <= 2 or p >= nb - 3:
             continue
         if prof[p] <= bg:            # 角落涟漪/负向抖动，非衍射峰
+            continue
+        if _pdet is not None and _pdet[p] <= 0:
             continue
         y0, y1, y2 = prof[p - 1], prof[p], prof[p + 1]
         d = 0.5 * (y0 - y2) / max(y0 - 2 * y1 + y2, 1e-12)
@@ -927,6 +1043,9 @@ def refine_geometry_2d(canvas, cx, cy, D_px, q_list, lam, n_iter=3,
             if r0 < MIN_R or r0 > 0.9 * r_edge:
                 continue
             band = np.abs(np.hypot(xx - c[0], yy - c[1]) - r0) < half
+            _m2 = _mask_for(band.shape)
+            if _m2 is not None:
+                band = band & ~_m2
             iy, ix = np.nonzero(band)
             if iy.size < 200:
                 continue
@@ -1153,7 +1272,8 @@ def _si_joint(canvas, px_m, kw, dbg):
 
 
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
-                i_rel=None, dbg=False, solve_kw=None, fb_grid=None):
+                i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
+                mask=None):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1199,6 +1319,18 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
     """
     if want != "auto":
         raise ValueError(f"want={want!r} unsupported (only 'auto')")
+    # B7 模块缝自动 mask(2026-11-07):行列暗带+P95 判据;与用户 mask OR。
+    # _AUTO_GAP=False 可关(消融);Pilatus 全中零误报、Eiger 零动作、
+    # Frelon 织构暗带全排除(探针 _b7_gapmask_probe.py 判决)。
+    gap_n = 0
+    if _AUTO_GAP:
+        try:
+            _g = auto_gap_mask(img)
+            if _g is not None:
+                gap_n = int(_g.sum())
+                mask = _g if mask is None else (mask | _g)
+        except Exception:
+            gap_n = 0
     kw = dict(cascade=True, auto_center=True, refine_2d=True)
     if solve_kw:
         kw.update(solve_kw)
@@ -1236,7 +1368,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     ps=float(res[1][6]), rms=float(res[1][4]),
                     m=int(res[1][3]),
                     def_ps=dstat[0], def_m=dstat[1], def_rms=dstat[2],
-                    lrg_ps=lstat[0], lrg_m=lstat[1], lrg_rms=lstat[2])
+                    lrg_ps=lstat[0], lrg_m=lstat[1], lrg_rms=lstat[2],
+                    gap_masked=gap_n)   # B7:自动 mask 像素数(0=无)
 
     def _stat(res):
         return (None, None, None) if res is None else (
@@ -1244,11 +1377,15 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
 
     # ---- 默认档 ----
     c1, s1, _, _ = canvas_of(img, "default")
+    if mask is not None:
+        register_mask(mask, s1)
     r1 = _solve_at(c1, px_m * s1, lam_in)
     dstat = _stat(r1)
 
     # ---- 升级档要不要扫（R2） ----
     c2, s2, _, _ = canvas_of(img, "large")
+    if mask is not None:
+        register_mask(mask, s2)
     scan, reason = False, None
     if s2 != s1 and c2.shape[0] * c2.shape[1] <= FB_AREA_MAX:
         if r1 is None:
@@ -1441,6 +1578,26 @@ def center_by_sharpness(canvas, step=46, dbg=False):
     return out
 
 
+# ---- 环饥饿守卫(2026-11-06,issue #1 / gate_corners 标定)----
+# classic-first 早退的可信度地板:D450 环饥饿域早退伪解的零样本指纹为
+# ps<0(环序置换,−185~−251mm)或 m<4;干净域 ps≥0.477、m≥5
+# (gate_sweep 69 + gate_corners 48 点),阈值留安全边。径向峰数不可作
+# 判据:离轴/倾角涂抹反而多伪峰(_starve_calib 实证,d450_t2_o35 有
+# 16 峰仍 3/3 早退错)。
+# ---- v2(2026-11-06 晚,starve_guard.md "待改进"落地)----
+# v1 的 EARLY_EXIT_PS=0.20 读 geo 候选的 ps——实测干净点 ps≈0.03 与
+# 饥饿伪解(0.027~0.045)完全重叠,阈值等价"far 帧恒走共识":48 硬角
+# 0/48 对,但 alumina 单帧基准 4.5/0.39→41/19(_starve_fp2 双口径标定)。
+# v2 指纹 = RS 独立种子解与 geo 解的 D 偏离 |ln(D_rs/D_geo)|,仅 far 帧
+# 计算(far=0 时锐度中心已投 geo 一票,层0守卫在,不付费):
+#   must-fire(D450 饥饿族 11 点): 0.518~0.818
+#   must-not-fire(alumina 54 帧): ≤0.406
+# D_RS_GATE=0.46 取两类中点(余量 0.054/0.058)。误触发仅耗时代价
+# (触发点共识解同样正确);RS 解失败=无反证,不触发。m 地板保留。
+EARLY_EXIT_M = 4
+D_RS_GATE = 0.46
+
+
 def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
                   cx_nn=None, cy_nn=None, D_nn_m=None, center=None,
                   d_range=(0.05, 3.0), rms_floor=3.5,
@@ -1512,13 +1669,29 @@ def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
     # alumina 全 51 帧 |sh−geo|≥233px（纹理拉偏）本就全在决斗分支，
     # 无新增暴露；ceria sh≈geo 不触发。
     far = float(np.hypot(sh[0] - geo[0], sh[1] - geo[1])) > 8.0
+    # RS 独立种子(v2 守卫用;far 帧才解,结果留给兜底种子复用)
+    rs_c = None
+    s_rs = None
     if s_geo is not None and s_geo[3] >= 3:
-        if classic_first and not far:
+        # 环饥饿守卫 v2(2026-11-06 晚):饥饿帧禁用全部早退分支(含
+        # far 决斗),geo 落入候选走全种子+共识仲裁。指纹 = RS 独立解
+        # 与 geo 解的 D 偏离(见文件头 v2 注释;_starve_fp2 标定:
+        # 饥饿族 0.518~0.818 / alumina ≤0.406,门 0.46)。v1 的 ps
+        # 阈值已废:干净点 geo ps≈0.03 与伪解重叠,等价恒触发,伤
+        # alumina 单帧基准(41/19)。
+        if far:
+            rs_c = center_radial_symmetry(canvas)
+            s_rs = run(rs_c[0], rs_c[1], 0.0, d_range)
+        starved = (s_rs is not None
+                   and abs(np.log(s_rs[2] / s_geo[2])) > D_RS_GATE) \
+            or s_geo[3] < EARLY_EXIT_M
+
+        if classic_first and not far and not starved:
             if dbg:
                 print(f"    [cascade] geo 通过 m={s_geo[3]} "
                       f"rms={s_geo[4]:.2f} ps={s_geo[6]:+.3f} → 直接返回")
             return s_geo + ("geo",)
-        if classic_first and far:
+        if classic_first and far and not starved:
             # 决斗 v3（W9 kasa 证书）：kasa 拟合成功（σ<1.0，强环像素级
             # 圆拟合收敛）= 光度学证书，此时 sh 为主——geo 解必须严格优势
             # （ps>+0.25 且 rms<0.75×）才能翻盘。Eiger9M 案例：LaB6 在
@@ -1564,13 +1737,17 @@ def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
         print(f"    [cascade] 主路径{'失败' if s_geo is None else 'm<3'} "
               f"→ 兜底种子")
 
-    rs = center_radial_symmetry(canvas)
+    rs = rs_c if rs_c is not None else center_radial_symmetry(canvas)
     seeds = [("rs", rs[0], rs[1]), ("sh", sh[0], sh[1])]
     for t in rays:
         seeds.append((f"ray{t}", rs[0] + t * (rs[0] - geo[0]),
                       rs[1] + t * (rs[1] - geo[1])))
     for tag, cx, cy in seeds:
-        s = run(cx, cy, 0.0, d_range)
+        # v2 守卫已解过 RS 种子(far 帧)——原样复用,不重解
+        if tag == "rs" and s_rs is not None:
+            s = s_rs
+        else:
+            s = run(cx, cy, 0.0, d_range)
         if s is not None and s[3] >= 3:
             cands.append((tag, s))
             if dbg:

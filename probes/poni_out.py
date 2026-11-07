@@ -20,6 +20,7 @@ pyFAI 2025.12 实测可读回）。
 import numpy as np
 from scipy.optimize import least_squares
 
+import json
 import os
 import sys
 
@@ -303,9 +304,111 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
                                               * 180 / np.pi))
 
 
+def distortion_red(do, px1, px2, folds=6, seed=0):
+    """B8 扭曲判决（2026-11-07，_b8_distort_probe 判决口径）。
+
+    fit_tilt 控制点 5 参残差 e_i=tth−fwd(p5)；扇区折交叉验证：
+    基线=测试扇扣训练扇加权均值，模型=[1,cos2φ,sin2φ,cos4φ,sin4φ,
+    (r/rmax)²]（soft_l1 拟合，RANSAC 精神）。返回折外
+    reduction=1−rms_model/rms_base（负≈无结构）。
+
+    阈值 0.05：ceria 注入 A/B——阴性 −1.06% vs 注入 9.7/11.2/16.9%
+    （15~34px 位移），间隔一个量级；强畸变下控制点减半仍有 10%。
+    """
+    try:
+        d1 = np.asarray(do["d1"], float)
+        d2 = np.asarray(do["d2"], float)
+        tth = np.asarray(do["tth"], float)
+        w = np.asarray(do["w"], float)
+        sec = np.asarray(do["sec"])
+        if len(d1) < 60:
+            return 0.0
+        fwd = make_pyfai_fwd(px1, px2, None)
+        p0 = np.asarray(do["p0"], float)
+        pred = fwd(p0[0], p0[1], p0[2], p0[3], p0[4], d1, d2)
+        e = (tth - pred) * w
+        phi = np.arctan2(d2 - do["poni2_0"], d1 - do["poni1_0"])
+        r = np.hypot(d1 - do["poni1_0"], d2 - do["poni2_0"])
+        rmax = r.max() if len(r) else 1.0
+        A = np.column_stack([np.ones_like(phi), np.cos(2 * phi),
+                             np.sin(2 * phi), np.cos(4 * phi),
+                             np.sin(4 * phi), (r / rmax) ** 2])
+        from scipy.optimize import least_squares
+        secs = np.unique(sec)
+        rng = np.random.default_rng(seed)
+        rng.shuffle(secs)
+        parts = np.array_split(secs, folds)
+        base2 = mod2 = 0.0
+        ntot = 0
+        for held in parts:
+            te = np.isin(sec, held)
+            tr = ~te
+            if te.sum() < 10 or tr.sum() < 30:
+                continue
+            c0 = float(e[tr].mean())
+            fit = least_squares(lambda c: (A[tr] @ c - e[tr]),
+                                np.zeros(A.shape[1]), loss="soft_l1",
+                                f_scale=float(np.std(e[tr])))
+            base2 += float(((e[te] - c0) ** 2).sum())
+            mod2 += float(((e[te] - A[te] @ fit.x) ** 2).sum())
+            ntot += int(te.sum())
+        if ntot == 0:
+            return 0.0
+        base_rms = float(np.sqrt(base2 / ntot))
+        mod_rms = float(np.sqrt(mod2 / ntot))
+        return 1.0 - mod_rms / max(base_rms, 1e-12)
+    except Exception:
+        return 0.0
+
+
+DISTORT_RED_CUT = 0.05
+
+
+def attach_mask_file(poni_path, mask):
+    """把掩膜挂到已写好的 .poni（下游 pyFAI 工作流直接可用）。
+
+    做三件事：
+    1. mask（bool，True=无效，原生分辨率）存 `<base>_mask.edf`（1=无效/0=有效）；
+    2. `.poni` 末尾写 `MaskFile: <相对文件名>`——pyFAI.load 会静默忽略该行
+       （2025.12.1 实证），但这是 pyFAI 积分输出头/部分工具的传递惯例，也供人读；
+    3. 伴生 `<base>.json`（pyFAI worker/integrate 配置：poni+mask_file 绝对路径）。
+       `pyFAI.worker.Worker().set_config(json.load(...))` 或 pyFAI-integrate GUI
+       载入即得带 mask 的 AzimuthalIntegrator（ai.mask 直接生效，已实证）。
+
+    返回 {"mask_edf": …, "worker_json": …}。
+    """
+    mask = np.asarray(mask, bool)
+    if mask.ndim != 2:
+        raise ValueError(f"mask 必须二维，得到 {mask.shape}")
+    base = os.path.splitext(poni_path)[0]
+    mpath = base + "_mask.edf"
+    import fabio
+    fabio.edfimage.EdfImage(data=mask.astype(np.uint8)).write(mpath)
+
+    # .poni 里插 MaskFile 行（幂等：已有则不重复写）
+    txt = open(poni_path, encoding="utf-8").read()
+    if "MaskFile:" not in txt:
+        txt = txt.rstrip("\n") + f"\nMaskFile: {os.path.basename(mpath)}\n"
+        with open(poni_path, "w", newline="\n") as f:
+            f.write(txt)
+
+    # 伴生 worker config（pyFAI 官方 mask 通道）
+    jpath = base + ".json"
+    with open(jpath, "w", encoding="utf-8") as f:
+        json.dump({"poni": os.path.abspath(poni_path),
+                   "mask_file": os.path.abspath(mpath),
+                   "do_mask": True}, f, indent=2)
+    return {"mask_edf": mpath, "worker_json": jpath}
+
+
 def write_poni(path, dist, poni1, poni2, rot1, rot2, lam, px1, px2,
-               rot3=0.0, note="", spline=None):
-    """写 .poni（镜像 GT 旧版格式）+ pyFAI 回读自检。"""
+               rot3=0.0, note="", spline=None, mask=None):
+    """写 .poni（镜像 GT 旧版格式）+ pyFAI 回读自检。
+
+    mask：可选 bool 数组（True=无效，原生分辨率）。给出时调用
+    attach_mask_file：存 <base>_mask.edf + poni 写 MaskFile 行 +
+    伴生 <base>.json（下游 Worker/GUI 直接带掩膜加载）。
+    """
     import time
 
     lines = [
@@ -341,6 +444,8 @@ def write_poni(path, dist, poni1, poni2, rot1, rot2, lam, px1, px2,
         assert max(chk) < 1e-11, f"poni 回读不一致: {chk}"
     except ImportError:
         pass
+    if mask is not None:
+        attach_mask_file(path, mask)
     return path
 
 
