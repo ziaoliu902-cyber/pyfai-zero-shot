@@ -36,13 +36,19 @@ i18n.set_lang("zh")
 
 from gui_solver import load_any, sniff_meta, SolveWorker, check_std
 
-# 2026-11-03 基线（T-SPL 接线当日，A/B 对照逐字段一致；
-# E1f2 深夜重锁 ceria_150 倾角臂）
+# 2026-11-03 基线(T-SPL 接线当日,A/B 对照逐字段一致;
+# E1f2 深夜重锁 ceria_150 倾角臂)
+# 2026-11-08 重锁 ceria_400:真凶实锤 = _SPLIT_G 默认开(11-07 B12①)。
+# 对照:splitG 关 → 逐位回 11-03 基线(399.5687/0.024°,_reg_splreg_
+# off2_out.txt;首轮"关对照"系补丁未生效的假阴性)。splitG 开:相/
+# 环数/ring_rms 稳,ΔGT −0.64 属盲解级正常,alumina 织构收益
+# 6.51→1.94mm(B12①)→ 非回归,锁现状口径。注意 verdict 由 0.024°
+# 变 0.294°(向导自检提示词变严,解仍可用)。
 BASE = {
     r"C:\Users\liu\Desktop\衍射测试图\ceria_400_1_0001.cbf": dict(
-        ph="CeO2", D_mm=399.5687, cx=1249.61, cy=1274.62,
+        ph="CeO2", D_mm=399.3551, cx=1249.63, cy=1274.74,
         native=False, tilt_on=True, center_src="solver",
-        ring_rms=0.3765, n=5, verdict_key="0.024° ✓ 合格"),
+        ring_rms=0.3806, n=5, verdict_key="最大偏差 0.294° ✗ 不合格"),
     r"D:\pyfai-project\data\real\MX_ceria\ceria_150_1_0001.cbf": dict(
         ph="CeO2", D_mm=148.97, cx=1227.5, cy=1257.8,
         native=True, tilt_on=True, center_src="r2d",

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """gui_solver.py：衍射图盲解 GUI（2026-11-02，T-GUI）。
 
  PyQt5 + matplotlib 零新依赖。功能：
@@ -609,7 +609,7 @@ class EscalationFlow:
     """
 
     def __init__(self, parent, *, get_lam, set_lam, retry, sync_sens=None,
-                 log=None, status=None, interactive=True):
+                 log=None, status=None, interactive=True, open_batch=None):
         self.parent = parent
         self.get_lam = get_lam
         self.set_lam = set_lam
@@ -618,6 +618,8 @@ class EscalationFlow:
         self.log = log or (lambda m: None)
         self.status = status or (lambda m: None)
         self.interactive = interactive
+        self.open_batch = open_batch or None   # 爬顶失败→"多帧平均"引导
+        self._multi_hinted = False             # 弹一次就够,之后仅状态栏
         self._esc_from = None
         self._esc_next = None
         self._cur = None          # 爬升中当前生效档
@@ -692,6 +694,7 @@ class EscalationFlow:
         if self._esc_next is None or self._esc_next > 2:
             self._restore("esc_climb_fail")
             self.status(tr("esc_none"))
+            self._suggest_multi_frame()
             return
         t = self._esc_next
         self._esc_next += 1
@@ -700,6 +703,30 @@ class EscalationFlow:
         self.sync_sens(t)
         self.status(tr("esc_climb", s=tr(f"esc_s{t}")))
         self.retry()
+
+    def _suggest_multi_frame(self):
+        """最高灵敏度仍无解 → 弱衍射域引导(2026-11-08 用户需求)。
+
+        机理:灵敏度调的是"峰检出门槛",救不了"峰位被噪声拉偏"
+        (alumina 实证:单帧 5/8 错 2~4mm 且自检无区分度)——唯一的
+        单张出路是把信噪比提上去:多帧平均(√N)。提示用户改走批量
+        平均帧模式;open_batch 回调缺失(wizard/批量语境)时仅提示。
+        """
+        if self._multi_hinted:
+            return
+        self._multi_hinted = True
+        self.log(tr("esc_multi_log"))
+        if self.open_batch is None:
+            return
+        box = QMessageBox(self.parent)
+        box.setWindowTitle(tr("esc_multi_title"))
+        box.setIcon(QMessageBox.Information)
+        box.setText(tr("esc_multi_text"))
+        b_go = box.addButton(tr("esc_multi_go"), QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Close)
+        box.exec_()
+        if box.clickedButton() is b_go:
+            self.open_batch()
 
 
 class Win(QMainWindow):
@@ -728,7 +755,8 @@ class Win(QMainWindow):
             retry=lambda: self._retry_solve(),
             sync_sens=self._sync_sens_ui,
             log=lambda m: self.txt.append(m),
-            status=lambda m: self.status.setText(m))
+            status=lambda m: self.status.setText(m),
+            open_batch=self.open_batch)
         self.poni_path = None
         self.st = QSettings("pyfai", "gui_solver")
         self.setAcceptDrops(True)          # 拖文件进窗口就能打开
@@ -770,11 +798,21 @@ class Win(QMainWindow):
         self.e_px.setToolTip("探测器像素尺寸（µm）。文件头有就自动填；常见：Pilatus 172、Eiger 75、Frelon 47")
         self.e_lam = QLineEdit(""); self.e_lam.setValidator(QDoubleValidator())
         self.e_lam.setPlaceholderText("空 = 联立解")
-        self.e_lam.setToolTip("波长（Å）。空着=盲解联立 λ–D；小角数据填了才出物理 D")
+        self.e_lam.setToolTip(
+            "波长（Å）或光子能量，按右侧单位。空着=盲解联立 λ–D；\n"
+            "小角数据填了才出物理 D。keV 模式自动换算 λ=12.39842/E")
+        # 单位切换(2026-11-07 B11 后续):同步辐射习惯报能量,keV↔Å 等价输入
+        self.cb_lamu = QComboBox(); self.cb_lamu.addItems(["Å", "keV"])
+        self.cb_lamu.setToolTip("λ/能量单位:Å=波长;keV=光子能量(λ=12.39842/E)")
+        self.l_lam = QLabel("波长")
+        h_lam = QHBoxLayout(); h_lam.setContentsMargins(0, 0, 0, 0)
+        h_lam.addWidget(self.e_lam, 1); h_lam.addWidget(self.cb_lamu)
+        self.cb_lamu.currentIndexChanged.connect(self._on_lamu)
         h_px = QLabel("µm")
         h_px.setProperty("muted", True)
         par_f.addRow(QLabel("像素"), self.e_px)
-        par_f.addRow(QLabel("波长 (Å)"), self.e_lam)
+        w_lam = QWidget(); w_lam.setLayout(h_lam)
+        par_f.addRow(self.l_lam, w_lam)
         self.e_dref = QLineEdit()
         self.e_dref.setPlaceholderText("可选，单位 mm")
         self.e_dref.setToolTip("谐波层状标样（AgBh/LaB6/AgSt）只出 3–4 条环时，\nD 与环序整数倍精确简并；填个设备近似距离即可锁死")
@@ -1010,7 +1048,7 @@ class Win(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "批量", f"模块加载失败:\n{e}")
             return
-        lam_t = self.e_lam.text().strip()
+        lam_t = self._lam_text()          # Å 口径(keV 模式已换算)
         BatchDialog(self, px_um=float(self.e_px.text() or 172.0),
                     lam=lam_t).exec_()
 
@@ -1047,7 +1085,11 @@ class Win(QMainWindow):
         if "px" in meta:
             self.e_px.setText(f"{meta['px']:g}")
         if "lam" in meta:
-            self.e_lam.setText(f"{meta['lam']:g}")
+            # 文件头波长是 Å;keV 模式下换算成能量填入(物理量一致)
+            if self.cb_lamu.currentIndex() == 1:
+                self.e_lam.setText(f"{self.HC_KEV_A / meta['lam']:g}")
+            else:
+                self.e_lam.setText(f"{meta['lam']:g}")
         extra = ""
         if meta["src"]:
             extra = (f"\n\n文件头自动读取（{meta['src']}）:\n"
@@ -1092,12 +1134,53 @@ class Win(QMainWindow):
         self.fig.tight_layout()
         self.cv.draw_idle()
 
+    # ---- λ/能量统一口径(2026-11-07 B11 后续) ----
+    # UI 数值 + 单位下拉(Å/keV);内部一律 Å。切换单位时换算框内数值,
+    # 物理量不变。λ 误差传播(B11:σ_E/E=1e-3 → 0.25mm@200mm)进 σ(D)。
+    HC_KEV_A = 12.39842
+
+    def _on_lamu(self, i):
+        """单位切换:Å↔keV 时换算框内数值(物理量保持)。"""
+        t = self.e_lam.text().strip()
+        self.l_lam.setText("能量" if i == 1 else "波长")
+        self.e_lam.setPlaceholderText("空 = 联立解")
+        if not t:
+            return
+        try:
+            v = float(t)
+        except ValueError:
+            return
+        self.e_lam.setText(f"{self.HC_KEV_A / v:.10g}")   # Å↔keV 互逆,同式
+
+    def _lam_A(self):
+        """→ 波长 Å(float)或 None(空=联立解)。keV 模式自动换算。"""
+        t = self.e_lam.text().strip()
+        if not t:
+            return None
+        try:
+            v = float(t)
+        except ValueError:
+            return None
+        if v <= 0:
+            return None
+        return self.HC_KEV_A / v if self.cb_lamu.currentIndex() == 1 else v
+
+    def _lam_text(self):
+        """→ Å 字符串(批量/escalation/设置存档口径);空返回 ''。"""
+        v = self._lam_A()
+        return "" if v is None else f"{v:g}"
+
+    def _lam_prop_mm(self, D_mm):
+        """λ/E 输入不确定度对 D 的传播(B11 误差预算:λ-D 乘积简并)。
+        σ_E/E 按 1e-3(同步辐射单色器标定典型值);用户未给 λ(联立解)
+        时 λ̂ 不确定度已含在解里,返回 0 且由调用方决定提示。"""
+        return 0.001 * D_mm if self._lam_A() is not None else 0.0
+
     def run_solve(self):
         if self.worker is not None and self.worker.isRunning():
             return
         px = float(self.e_px.text() or 172.0)
-        lam_txt = self.e_lam.text().strip()
-        self.worker = SolveWorker(self.img, float(lam_txt) if lam_txt else None, px,
+        self.worker = SolveWorker(self.img, self._lam_A(), px,
                                   mask=self.mask,
                                   dref=(self.e_dref.text().strip() or None))
         self.worker.done.connect(self.on_done)
@@ -1151,12 +1234,20 @@ class Win(QMainWindow):
         self.b_copy.setEnabled(True)
         self.b_check.setEnabled(True)
         self.st.setValue("px", self.e_px.text())
-        self.st.setValue("lam", self.e_lam.text())
+        self.st.setValue("lam", self._lam_text())
         px_um = float(self.e_px.text() or 172.0)
         D_mm = res["D_px"] * px_um * 1e-3
         sD = res.get("sD_mm", 0.0)
-        d_line = (f"距离 D: {D_mm:.2f} ± {sD:.2f} mm（环间一致性 1σ）"
-                  if sD > 0 else f"距离 D: {D_mm:.2f} mm  ± 未估（环不足）")
+        # σ(D) 组成(B11 误差预算):统计(环间一致性)+ λ/E 输入传播。
+        # λ-D 乘积简并:σ_E/E=1e-3 → 0.1%·D;统计与传播正交合成。
+        s_prop = self._lam_prop_mm(D_mm)
+        s_tot = (sD ** 2 + s_prop ** 2) ** 0.5
+        if sD > 0:
+            d_line = f"距离 D: {D_mm:.2f} ± {s_tot:.2f} mm（统计 {sD:.2f}"
+            d_line += (f" + λ 传播 {s_prop:.2f}, σ_E/E 按 1e-3）"
+                       if s_prop else "）")
+        else:
+            d_line = f"距离 D: {D_mm:.2f} mm  ± 未估（环不足）"
         lines = [
             f"物相: {res['ph']}",
             f"波长 λ̂: {res['lam']:.4f} Å" + ("" if not res["native"] else "（联合解）"),
@@ -1193,8 +1284,18 @@ class Win(QMainWindow):
                          "不可辨识，硬加反而掉精度；P2M 实证 0.010° vs 0.138°）")
         else:
             lines.append("倾角: 未拟合（rot=0；峰位 0.1° 级误差风险）")
-        if not self.e_lam.text().strip():
-            lines.append("⚠ λ 未给定：小角域 λ–D 简并，D 与 λ̂ 仅乘积可信")
+        if self._lam_A() is None:
+            _sig = res.get("lam_sig")
+            if _sig is not None and _sig < 0.02:
+                lines.append(f"λ̂ 联合解: σ(λ)={_sig*100:.1f}%（本解内 λ/D "
+                             f"已破简并；窄角域弱衍射时相鉴定可能出错——"
+                             f"核对物相与 λ 是否符合实验记录）")
+            else:
+                _pct = "σ(λ) 未知" if _sig is None else f"σ(λ)={_sig*100:.0f}%"
+                lines.append(f"⚠ λ–D 简并（{_pct}）：本图角域窄，D 与 λ̂ 单独"
+                             f"不可信（仅乘积可信），相鉴定也可能受牵连——"
+                             f"建议查实验记录填 λ 后重解；或改拍多帧并用"
+                             f"批量『🏠 弱衍射·平均帧种子』（仍需 λ）")
         _k = res.get("harmonic_k")
         if _k:
             lines.append(f"距离已按近似距离吸附到第 {_k} 阶谐波"
@@ -1362,8 +1463,15 @@ class Win(QMainWindow):
             self.txt.append(f"  σ(D)：配对环 {bs[1]} < 4，统计不可辨识（dof≤0）")
         else:
             s_, lo_, hi_, n_ = bs
+            p_ = self._lam_prop_mm(self.res["D_px"] *
+                                   float(self.e_px.text() or 172.0) * 1e-3)
+            t_ = (s_ ** 2 + p_ ** 2) ** 0.5
             self.txt.append(f"  σ(D) = {s_:.2f} mm   95%CI [{lo_:.1f}, "
                             f"{hi_:.1f}] mm（{n_} 环配对）")
+            if p_:
+                self.txt.append(f"  σ(D) 含 λ/E 传播 = {t_:.2f} mm"
+                                f"（√(统计 {s_:.2f}² + 传播 {p_:.2f}²)，"
+                                f"σ_E/E 按 1e-3）")
         if tb is not None:
             self.txt.append(f"  σ(rot1, rot2) = ({tb['s_r1']:.1f}, "
                             f"{tb['s_r2']:.1f}) mrad   σ(D|倾角层) = "
@@ -1382,10 +1490,23 @@ class Win(QMainWindow):
         L = []
         L.append(f"图像文件: {os.path.basename(getattr(self, 'img_path', '') or '未命名')}")
         L.append(f"物相: {res['ph']}")
-        L.append(f"波长 λ̂: {res['lam']:.4f} Å" + ("" if self.e_lam.text().strip()
-                else "（联立解——小角域 λ–D 简并,仅乘积可信）"))
+        _sig_r = res.get("lam_sig")
+        L.append(f"波长 λ̂: {res['lam']:.4f} Å" + ("" if self._lam_A() is not None
+                else (f"（联合解 σ(λ)={_sig_r*100:.1f}%——本解内已破简并,"
+                      f"请核对相/λ 与实验记录）"
+                      if _sig_r is not None and _sig_r < 0.02
+                      else f"（联合解——λ–D 简并"
+                           f"{'' if _sig_r is None else f' σ(λ)={_sig_r*100:.0f}%'},"
+                           f"仅乘积可信;建议填 λ 重解）")))
         sD = res.get("sD_mm", 0.0)
-        L.append(f"距离 D: {D_mm:.2f} mm" + (f" ± {sD:.2f}" if sD > 0 else ""))
+        s_prop = self._lam_prop_mm(D_mm)
+        s_tot = (sD ** 2 + s_prop ** 2) ** 0.5
+        d_rep = f"距离 D: {D_mm:.2f} mm ± {s_tot:.2f}（统计 {sD:.2f}"
+        d_rep += (f" + λ/E 传播 {s_prop:.2f},σ_E/E 按 1e-3）" if s_prop else "）")
+        L.append(d_rep)
+        if s_prop:
+            L.append("  σ 组成注:λ–D 乘积简并(B11 预算:1e-3 能量标定 → "
+                     "0.1%·D);XRF/标定单色器可到 1e-4 时该项缩小 10×")
         L.append(f"束心: ({res['cx']:.1f}, {res['cy']:.1f}) px（原生）")
         L.append(f"匹配: m={res['sol'][3]}  rms={res['sol'][4]:.2f}px  ps={res['sol'][6]:.3f}")
         tf = res.get("tf")
@@ -1402,6 +1523,11 @@ class Win(QMainWindow):
             if isinstance(bs, tuple) and len(bs) == 4:
                 L.append(f"σ(D) = {bs[0]:.2f} mm  95%CI [{bs[1]:.1f}, {bs[2]:.1f}]"
                          f"（{bs[3]} 环配对,块自助统计部分）")
+                _pp = self._lam_prop_mm(D_mm)
+                if _pp:
+                    _tt = (bs[0] ** 2 + _pp ** 2) ** 0.5
+                    L.append(f"σ(D) 含 λ/E 传播 = {_tt:.2f} mm"
+                             f"（+{_pp:.2f},σ_E/E 按 1e-3;B11 预算）")
             if tb:
                 L.append(f"σ(rot1, rot2) = ({tb['s_r1']:.1f}, {tb['s_r2']:.1f}) mrad"
                          f"（{tb['ndraw']} draw）")
@@ -1520,7 +1646,67 @@ class Win(QMainWindow):
                             + extra)
 
 
+def _selftest():
+    """打包自检(2026-11-08):headless 验证 exe 内动态 import 链
+    +真图解码+pyFAI 前向。exe --selftest 用;失败写 %TEMP% 日志安静
+    退出(windowed exe 崩溃会弹 PyInstaller 对话框,勿裸抛)。"""
+    import os
+    import sys
+    import traceback
+    try:
+        _selftest_body()
+    except Exception:
+        log = os.path.join(os.environ.get("TEMP", "."), "PyFAI-Blind-selftest.log")
+        with open(log, "w", encoding="utf-8") as f:
+            traceback.print_exc(file=f)
+        print(f"selftest ✗ 详情: {log}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+
+def _selftest_body():
+    import numpy as np
+    import sys as _sys
+    try:
+        _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    print("[1/4] torchfai.phases …", flush=True)
+    from torchfai.phases import PHASE_NAMES, phase_qs
+    assert len(phase_qs("Al2O3")) >= 5
+    print("[2/4] fabio/pyFAI 动态面 …", flush=True)
+    import fabio, pyFAI.geometry
+    from pyFAI.detectors import Detector
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator
+    try:
+        from pyFAI.spline import Spline
+        _spline_ok = True
+    except Exception:
+        _spline_ok = False
+    print("[3/4] 真图解码 …", flush=True)
+    import os
+    _img = (r"D:\pyfai-project\data\real\MX_ceria"
+            r"\ceria_150_1_0001.cbf")
+    if os.path.exists(_img):
+        img = fabio.open(_img).data
+        assert img.shape[0] > 500 and np.isfinite(img).any()
+        _imginfo = str(img.shape)
+    else:
+        _imginfo = "SKIP(无测试图)"
+    print("[4/4] pyFAI 前向 …", flush=True)
+    from pyFAI.detectors import Detector
+    g = pyFAI.geometry.Geometry(dist=0.15, wavelength=1e-10)
+    g.detector = Detector(pixel1=1e-4, pixel2=1e-4,
+                          max_shape=(1043, 981))
+    t = g.tth(np.linspace(0, 1000, 10), np.linspace(0, 1000, 10))
+    assert np.isfinite(t).all()
+    print(f"\nselftest ✓ phases={len(PHASE_NAMES)} spline={_spline_ok} "
+          f"img={_imginfo}", flush=True)
+
+
 def main():
+    if "--selftest" in sys.argv:
+        _selftest()
+        return
     app = QApplication(sys.argv)
     win = Win()
     win.show()

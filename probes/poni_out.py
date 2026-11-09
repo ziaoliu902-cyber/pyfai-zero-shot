@@ -116,18 +116,33 @@ def make_pyfai_fwd(px1=None, px2=None, spline=None):
         det = Detector(pixel1=px1, pixel2=px2, splinefile=spline)
     except TypeError:                    # 旧版 pyFAI 参数名
         det = Detector(pixel1=px1, pixel2=px2, splineFile=spline)
-    g = pyFAI.geometry.Geometry(dist=0.1, wavelength=1e-10)
-    g.detector = det
+
+    # 2026-11-08 修复:spline 校正只对整图 2D 网格安全——散点(控制点
+    # 数百个)直接喂 pyFAI 会 bisplev 外积取值错位(fit_tilt rot 冲
+    # +1.6°、D −1.9mm,probes/_t_fwdspl2.py 铁证)。改为:整图网格一次
+    # 求校正后物理坐标(米)→ 位移场双线性查表 → 自研 tth_of(与
+    # pyFAI 整图口径等价,插值误差 <<1µm)。
+    H, W = (int(x) for x in det.max_shape)
+    yy, xx = np.mgrid[0:H, 0:W].astype(float)
+    p1m, p2m, _ = det.calc_cartesian_positions(yy, xx)
+    from scipy.interpolate import RegularGridInterpolator
+    gy = np.arange(H, dtype=float)
+    gx = np.arange(W, dtype=float)
+    itp1 = RegularGridInterpolator(
+        (gy, gx), p1m / px1 - 0.5, bounds_error=False, fill_value=None)
+    itp2 = RegularGridInterpolator(
+        (gy, gx), p2m / px2 - 0.5, bounds_error=False, fill_value=None)
 
     def fwd(dist, poni1, poni2, rot1, rot2, d1, d2):
-        g.dist = dist
-        g.poni1 = poni1
-        g.poni2 = poni2
-        g.rot1 = rot1
-        g.rot2 = rot2
-        g.rot3 = 0.0
-        return np.asarray(g.tth(np.asarray(d1, float), np.asarray(d2, float)),
-                          dtype=float)
+        d1 = np.asarray(d1, float)
+        d2 = np.asarray(d2, float)
+        b1, b2 = np.broadcast_arrays(d1, d2)
+        pts = np.stack([np.clip(b1, 0, H - 1), np.clip(b2, 0, W - 1)],
+                       axis=-1)
+        d1c = itp1(pts).reshape(b1.shape)
+        d2c = itp2(pts).reshape(b1.shape)
+        return tth_of((d1c + 0.5) * px1, (d2c + 0.5) * px2,
+                      dist, poni1, poni2, rot1, rot2)
     return fwd
 
 

@@ -469,6 +469,10 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
         y0, y1, y2 = prof[p - 1], prof[p], prof[p + 1]
         d = 0.5 * (y0 - y2) / max(y0 - 2 * y1 + y2, 1e-12)
         rp = (p + 0.5 + np.clip(d, -1, 1)) * bin_px
+        if _SPLIT_G:                 # B11c:分裂高斯精化(偏斜 11× 压缩)
+            rg = _split_gauss_center(prof, p, bg, c0=rp / bin_px)
+            if rg is not None:
+                rp = (rg + 0.5) * bin_px
         if rp < min_r:
             continue
         out.append((rp, prof[p]))
@@ -485,6 +489,70 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
         else:
             merged.append((rp, h))
     return merged, prof, bin_px, good
+
+
+_SPLIT_G = True    # B11c/d+B12①(2026-11-07):分裂高斯定心默认开。
+# 合成域抗偏斜 11×(0.3px 偏斜残余 0.179→0.026px);ceria×7+P2M 真实
+# A/B 中性(ΔD≤0.03mm,无偏斜可消时无损);alumina 织构 9 帧 A/B
+# (B12①):|Δ|均值 6.51→1.94mm——8/9 帧中性、0036 帧抛物线错解
+# −43.5mm 被 splitG 兜住 −3.5mm。织构域稳健性 >> 对称域零成本。
+
+
+def _split_gauss_center(prof, p, bg, win=6, c0=None):
+    """峰 p 的分裂高斯精化(antisym 偏斜一阶免疫,B11c 0.3px→0.026px)。
+    拟合 (c,a,sL,sR,b);失败/越窗/移位>1.5bin 返回 None(回退抛物线)。
+    c0:抛物线中心初值(bin 索引,2026-11-08 zoo 提速:准初值少迭代)。
+    2026-11-08 zoo 卡死修复②:解析 jac(省 6× 数值差分)+峰高门
+    (近噪声峰直回抛物线,弱谱假峰海量时省调用)。"""
+    try:
+        from scipy.optimize import least_squares
+        lo, hi = max(0, p - win), min(len(prof), p + win + 1)
+        x = np.arange(lo, hi, dtype=float)
+        y = prof[lo:hi]
+        if len(x) < 7:
+            return None
+        if prof[p] < 2.0 * abs(bg) + 1e-12:   # 峰高门:纯噪声峰不值 5 参
+            return None
+        c_init = float(p) if c0 is None else float(np.clip(c0, p - 1, p + 1))
+        p0 = [c_init, float(prof[p]), 2.0, 2.0, float(bg)]
+
+        def resid(q):
+            c, a, sL, sR, b = q
+            s = np.where(x < c, np.abs(sL), np.abs(sR)) + 1e-6
+            return a * np.exp(-0.5 * ((x - c) / s) ** 2) + b - y
+
+        def jac(q):
+            c, a, sL, sR, b = q
+            sl, sr = abs(sL) + 1e-6, abs(sR) + 1e-6
+            s = np.where(x < c, sl, sr)
+            E = a * np.exp(-0.5 * ((x - c) / s) ** 2)
+            u = (x - c) / s
+            J = np.empty((len(x), 5))
+            J[:, 0] = E * u / s            # ∂/∂c(忽略分支切换项,方向足够)
+            J[:, 1] = E / a                # ∂/∂a
+            J[:, 2] = np.where(x < c, E * u * u / sl, 0.0)   # ∂/∂sL
+            J[:, 3] = np.where(x < c, 0.0, E * u * u / sr)   # ∂/∂sR
+            J[:, 4] = 1.0                  # ∂/∂b
+            return J
+
+        fit = least_squares(resid, p0, jac=jac, loss="soft_l1",
+                            f_scale=2.0,
+                            # 2026-11-08 zoo 卡死修复:默认容差下 13 点
+                            # 拟合磨 571 nfev/38ms,×λ 网格×cascade×
+                            # 每解数百峰 = zoo 全量 20-60× 慢化
+                            # (Pilatus1M/2M >15 分钟无输出,py-spy 实锤
+                            # 本函数)。峰位需求 0.026px 级(B11c)=1e-3
+                            # bin,容差 1e-4+nfev 60 已 10× 富余。
+                            xtol=1e-4, ftol=1e-4, gtol=1e-4,
+                            max_nfev=60,
+                            bounds=([p - 1.5, 0, 0.3, 0.3, -np.inf],
+                                    [p + 1.5, np.inf, 20, 20, np.inf]))
+        c = float(fit.x[0])
+        if not np.isfinite(c) or abs(c - p) > 1.5:
+            return None
+        return c - 0.5            # 返回 bin 索引(减 0.5 与 prof 网格一致)
+    except Exception:
+        return None
 
 
 SIGMA_PK = 2.5    # 模型环宽(px@画布)——全谱相关打分用
@@ -1262,8 +1330,13 @@ def _si_blind(canvas, px_m, lam, phases, kw, dbg):
 
 def _si_joint(canvas, px_m, kw, dbg):
     try:
-        return solve_auto_lambda(canvas, px_m, auto_center=kw.get(
-            "auto_center", True), dbg=dbg)
+        r = solve_auto_lambda(canvas, px_m, auto_center=kw.get(
+            "auto_center", True), dbg=dbg, full=True)
+        if r is None:
+            return None
+        # 2026-11-08:透传 σ(λ)——GUI 简并分级提示(σ≥2%=窄角域,
+        # D/λ̂ 单独不可信;σ 小=宽角域联合解可信)。
+        return (r["phase"], r["sol"], r["lam"], r.get("lam_sig"))
     except Exception:
         if dbg:
             import traceback
@@ -1363,6 +1436,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
 
     def _pack(res, canvas, s, px_c, used_fb, reason, dstat, lstat):
         return dict(phase=res[0], sol=res[1], lam=res[2], lam_in=lam_in,
+                    lam_sig=(res[3] if len(res) > 3 else None),
                     canvas=canvas, s=s, px_m=px_c,
                     used_fallback=used_fb, fb_reason=reason,
                     ps=float(res[1][6]), rms=float(res[1][4]),
@@ -1773,3 +1847,147 @@ def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
         print(f"    [cascade] 共识胜者 {tag}（{cp[2]} 票）")
     return s + (tag,)
 
+
+
+# ==================== B13 多帧联合标定(2026-11-08) ====================
+# 判决依据 probes/_b13_joint.py(51 帧):σ(D_joint)=0.010mm=MAD/√51
+# ✓√N 收敛;逐帧 MAD 0.084mm(控制点口径)。两层设计:GUI 批量与
+# CLI 探针复用同代码(上层已有逐帧解时跳过重解,只补控制点+联合)。
+
+def cpts_of_frame(img, cx, cy, D_px, px1, px2, lam, qs, nsec=36,
+                  mass_rel=0.10, win=6.0, bump=1.5, fwd=None):
+    """原生图 + 圆解种子(原生 px)→ 控制点(B13 联合最小单元)。
+
+    种子容差:画布盲解换算即可(D ±2% 内、中心 ±(s/2+若干)px;
+    fit_tilt 内部 sector 峰定位吸收)。fwd=None → 自研前向;
+    给 make_pyfai_fwd(px1,px2,spline) → spline 口径(装置级对齐
+    GT poni,如 Frelon distorsion_2x2)。返回 dict(d1,d2,tth,w,
+    p1,p2, rms5, D) 或 None(<20 点/拟合失败)。
+    """
+    from poni_out import fit_tilt
+    do = {}
+    tf = fit_tilt(img, float(cx), float(cy), float(D_px), qs, lam,
+                  px1, px2, sfull=1, nsec=nsec, win=win, mass_rel=mass_rel,
+                  bump=bump, fwd=fwd, data_out=do)
+    if tf is None or len(do.get("d1", ())) < 20:
+        return None
+    return dict(d1=np.asarray(do["d1"], float),
+                d2=np.asarray(do["d2"], float),
+                tth=np.asarray(do["tth"], float),
+                w=np.asarray(do["w"], float),
+                p1=tf["poni1"], p2=tf["poni2"], rms5=tf.get("rms5"),
+                D=tf["dist"] * 1e3)      # 帧独立 5 参解 D(mm,审计用)
+
+
+def b_route_mean_seed(imgs, px1, px2, lam, phase, spline=None):
+    """B 路线 mean 种子(phase_fit alumina Phase3 提取,2026-11-08)。
+
+    弱衍射静态装置专用:逐帧盲解次优盆丛生(alumina 5/8 帧 −2~−4mm,
+    ps/m/rms 无区分度),52 帧平均把峰位噪声 ↓√N 后一次圆解即可靠。
+    链:流式 mean → solve_image 画布圆解(锁相+旧三关)→ fit_tilt
+    (画布 + spline 前向,nsec=36)→ 5 参种子(米制)。
+    imgs: 原生图迭代器(调用方负责 load 与哨兵清洗)。
+    返回 dict(dist,poni1,poni2,rot1,rot2,n) 或 None。
+    种子→原生 px:cx=poni2/px2−0.5, cy=poni1/px1−0.5, D_px=dist/px1。
+    """
+    from poni_out import fit_tilt, make_pyfai_fwd
+    acc, n = None, 0
+    for img in imgs:
+        img = np.where(np.isfinite(img), img, 0.0).astype(np.float64)
+        acc = img if acc is None else acc + img
+        n += 1
+    if n < 1:
+        return None
+    mean_img = acc / n
+    px_avg = (px1 + px2) / 2
+    r = solve_image(mean_img, px_avg, lam=lam, phases=[phase],
+                    solve_kw=dict(cascade=True, auto_center=False,
+                                  refine_2d=False))
+    if r is None:
+        return None
+    canvas, s, sol = r["canvas"], r["s"], r["sol"]
+    tf = fit_tilt(canvas, sol[0], sol[1], sol[2], phase_qs(phase), lam,
+                  px1 * s, px2 * s, sfull=s,
+                  fwd=make_pyfai_fwd(px1, px2, spline), nsec=36,
+                  mass_rel=0.10, bump=1.5)
+    if tf is None:
+        return None
+    return dict(dist=tf["dist"], poni1=tf["poni1"], poni2=tf["poni2"],
+                rot1=tf["rot1"], rot2=tf["rot2"], n=n, rms5=tf.get("rms5"))
+
+
+def joint_solve_frames(cpts_list, px1, px2, boot=6, seed=3, spline=None):
+    """控制点级联合拟合:全局 (dist,rot1,rot2) + 每帧 (poni1,poni2)。
+
+    cpts_list: cpts_of_frame 输出(≥2 帧有效才有意义;≥3 起用)。
+    spline: 探测器畸变文件路径(None=自研前向)。**口径一致性**:
+    cpts 用 fwd=spline 提取时,联合必须同 spline,否则控制点与
+    前向不匹配(系统差 ~0.6mm,见 B13 无 spline Δ−0.588)。
+    boot: bootstrap 抽帧(70%)次数,≥1 时返回 sigma_boot。
+    返回 dict(dist, rot1, rot2, lam 无, p1s/p2s 每帧, rms(rad),
+    npts, nf, sigma_boot|None, Ds_boot) 或 None。
+    """
+    from poni_out import make_pyfai_fwd
+    from scipy.optimize import least_squares
+    live = [c for c in cpts_list if c is not None]
+    if len(live) < 2:
+        return None
+    fwd = make_pyfai_fwd(px1, px2, spline)
+    D1 = np.concatenate([c["d1"] for c in live])
+    D2 = np.concatenate([c["d2"] for c in live])
+    TT = np.concatenate([c["tth"] for c in live])
+    WW = np.concatenate([c["w"] for c in live])
+    FR = np.concatenate([[k] * len(c["d1"]) for k, c in enumerate(live)])
+    WW = WW / WW.mean()
+
+    def resid(p):
+        return (fwd(p[0], p[3 + 2 * FR], p[4 + 2 * FR], p[1], p[2], D1, D2)
+                - TT) * WW
+
+    # 初值:每帧 p1/p2(fit_tilt 解),全局 dist 一阶粗估、rot=0
+    i0 = int(np.argmax(TT))
+    r0 = float(np.hypot((D1[i0] + 0.5) * px1, (D2[i0] + 0.5) * px2))
+    dist0 = r0 / np.tan(TT[i0])
+    p0 = np.concatenate([[dist0, 0.0, 0.0],
+                         np.array([[c["p1"], c["p2"]]
+                                   for c in live]).ravel()])
+    try:
+        fit = least_squares(resid, p0, method="lm", max_nfev=4000)
+    except Exception:
+        return None
+    rms = float(np.sqrt(np.mean((fit.fun / WW) ** 2)))
+
+    out = dict(dist=float(fit.x[0]), rot1=float(fit.x[1]),
+               rot2=float(fit.x[2]), rms=rms,
+               npts=int(len(TT)), nf=len(live),
+               p1s=[float(v) for v in fit.x[3::2]],
+               p2s=[float(v) for v in fit.x[4::2]])
+    if boot >= 1:
+        rng = np.random.default_rng(seed)
+        nf = len(live)
+        Ds_b = []
+        for _ in range(boot):
+            sel = rng.choice(nf, size=max(3, int(nf * 0.7)), replace=False)
+            mask = np.isin(FR, sel)
+            remap = {v: k for k, v in enumerate(sorted(set(sel.tolist())))}
+            FRb = np.array([remap[v] for v in FR[mask]])
+            D1b, D2b, TTb, WWb = (D1[mask], D2[mask], TT[mask], WW[mask])
+
+            def rb(pp):
+                return (fwd(pp[0], pp[3 + 2 * FRb], pp[4 + 2 * FRb],
+                            pp[1], pp[2], D1b, D2b) - TTb) * WWb
+
+            p0b = np.concatenate([[fit.x[0], fit.x[1], fit.x[2]],
+                                  np.array([[c["p1"], c["p2"]]
+                                            for k, c in enumerate(live)
+                                            if k in set(sel.tolist())]
+                                           ).ravel()])
+            try:
+                fb = least_squares(rb, p0b, method="lm", max_nfev=2500)
+                Ds_b.append(fb.x[0] * 1e3)
+            except Exception:
+                continue
+        out["Ds_boot"] = Ds_b
+        out["sigma_boot"] = (float(np.std(Ds_b))
+                             if len(Ds_b) >= 3 else None)
+    return out

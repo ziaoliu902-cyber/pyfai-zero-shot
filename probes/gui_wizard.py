@@ -17,16 +17,16 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(ROOT))
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QDoubleValidator, QFont
 from PyQt5.QtWidgets import (
     QApplication, QWizard, QWizardPage, QLabel, QPushButton, QLineEdit,
     QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit, QProgressBar,
-    QFileDialog, QMessageBox)
+    QFileDialog, QMessageBox, QComboBox)
 
 from gui_solver import (load_any, sniff_meta, SolveWorker, CheckWorker,
                         check_std, hybrid_ai, np, apply_spline,
-                        set_splinefile)
+                        set_splinefile, EscalationFlow)
 import theme
 from i18n import tr, get_lang, set_lang, LANG_NAMES
 
@@ -178,7 +178,11 @@ class PageParam(QWizardPage):
         g.addWidget(QLabel(tr("p2_px_hint")), 0, 2)
         g.addWidget(QLabel(tr("p2_lam")), 1, 0)
         g.addWidget(self.e_lam, 1, 1)
-        g.addWidget(QLabel(tr("p2_lam_hint")), 1, 2)
+        # 单位切换(2026-11-07):与主窗口同款,Å↔keV(λ=12.39842/E)
+        self.cb_lamu = QComboBox(); self.cb_lamu.addItems(["Å", "keV"])
+        self.cb_lamu.currentIndexChanged.connect(self._on_lamu)
+        g.addWidget(self.cb_lamu, 1, 2)
+        g.addWidget(QLabel(tr("p2_lam_hint")), 1, 3)
         self.note = QLabel("")
         self.note.setWordWrap(True)
         g.addWidget(self.note, 2, 0, 3, 1)
@@ -191,7 +195,15 @@ class PageParam(QWizardPage):
             self.e_px.setText(f"{meta['px']:g}")
         else:
             self.e_px.setText("172")
-        self.e_lam.setText(f"{meta['lam']:g}" if "lam" in meta else "")
+        if "lam" in meta:
+            # 文件头波长是 Å;keV 模式换算成能量填入(物理量一致)
+            v = meta["lam"]
+            if self.cb_lamu.currentIndex() == 1:
+                self.e_lam.setText(f"{self.HC_KEV_A / v:.10g}")
+            else:
+                self.e_lam.setText(f"{v:g}")
+        else:
+            self.e_lam.setText("")
         msg = []
         if meta["src"]:
             lam = tr("p2_auto_lam", lamv=f"{meta['lam']:g}") if "lam" in meta else ""
@@ -202,6 +214,33 @@ class PageParam(QWizardPage):
         else:
             msg.append(tr("p2_nopx"))
         self.note.setText("\n".join(msg))
+
+    # ---- λ/能量统一口径(2026-11-07,与主窗口同款) ----
+    HC_KEV_A = 12.39842
+
+    def _on_lamu(self, i):
+        """单位切换:Å↔keV 换算框内数值(物理量保持;两方向同式)。"""
+        t = self.e_lam.text().strip()
+        if not t:
+            return
+        try:
+            v = float(t)
+        except ValueError:
+            return
+        self.e_lam.setText(f"{self.HC_KEV_A / v:.10g}")
+
+    def _lam_A(self):
+        """→ 波长 Å(float)或 None(空=联立解)。keV 模式自动换算。"""
+        t = self.e_lam.text().strip()
+        if not t:
+            return None
+        try:
+            v = float(t)
+        except ValueError:
+            return None
+        if v <= 0:
+            return None
+        return self.HC_KEV_A / v if self.cb_lamu.currentIndex() == 1 else v
 
     def validatePage(self):
         try:
@@ -222,6 +261,7 @@ class PageSolve(QWizardPage):
         self.setSubTitle(tr("p3_sub"))
         self._ok = False
         self.worker = None
+        self.flow = None          # 环不足补救(2026-11-07 与主窗口共享状态机)
         lay = QVBoxLayout()
         self.pb = QProgressBar(); self.pb.setRange(0, 0)
         self.lab = QLabel(tr("p3_ready"))
@@ -232,15 +272,41 @@ class PageSolve(QWizardPage):
         lay.addWidget(self.out, 1)
         self.setLayout(lay)
 
+    def _ensure_flow(self):
+        """补救控制器晚建:要引用向导兄弟页的控件。"""
+        if self.flow is not None:
+            return
+        wiz = self.wizard()
+
+        def retry():
+            QTimer.singleShot(60, self._restart)
+
+        self.flow = EscalationFlow(
+            self,
+            get_lam=lambda: wiz.p2.e_lam.text().strip(),
+            set_lam=lambda v: wiz.p2.e_lam.setText(v),
+            retry=retry,
+            log=lambda m: self.out.append(m),
+            status=lambda m: self.lab.setText(m))
+
+    def _restart(self):
+        if self.worker is not None and self.worker.isRunning():
+            return
+        self._start()
+
     def initializePage(self):
         if self.worker is not None and self.worker.isRunning():
             return
+        self._start()
+
+    def _start(self):
         wiz = self.wizard()
+        self._ensure_flow()
         self._ok = False
         self.pb.setVisible(True)
-        lam_t = wiz.p2.e_lam.text().strip()
+        lam_t = wiz.p2._lam_A()
         self.worker = SolveWorker(wiz.p1.img,
-                                  float(lam_t) if lam_t else None,
+                                  lam_t,
                                   float(wiz.p2.e_px.text()))
         self.worker.done.connect(self._done)
         self.worker.fail.connect(self._fail)
@@ -249,6 +315,8 @@ class PageSolve(QWizardPage):
 
     def _fail(self, tb):
         self.pb.setVisible(False)
+        if self.flow is not None:
+            self.flow.on_fail()             # 爬升中异常 → 恢复档位
         self.lab.setText(tr("p3_fail"))
         self.out.setPlainText(tb)
 
@@ -257,28 +325,61 @@ class PageSolve(QWizardPage):
         wiz = self.wizard()
         wiz.res = res
         if res is None:
-            self.lab.setText(tr("p3_none"))
-            self.out.setPlainText(tr("p3_honest"))
-            self.completeChanged.emit()
+            climbing = self.flow._esc_next is not None
+            self.flow.on_none()             # 爬升中→下一档;首次→问询
+            if self.flow._esc_next is None and not climbing:
+                self.lab.setText(tr("p3_none"))
+                self.out.setPlainText(tr("p3_honest"))
+                self.completeChanged.emit()
             return
+        self.flow.on_success()
         px_um = float(wiz.p2.e_px.text())
         D_mm = res["D_px"] * px_um * 1e-3
         tf = res.get("tf")
         tilt = (tr("s_tilt_v", a=tf["rot1"] * 1e3, b=tf["rot2"] * 1e3)
                 if tf else tr("s_tilt_none"))
+        from torchfai.phases import HARMONIC_PHASES
+        _m = res["sol"][3]
+        _harm = (res["ph"] in HARMONIC_PHASES and _m <= 4)
         self.out.setPlainText(
             "\n".join([
                 tr("s_phase", ph=res["ph"]),
                 tr("s_lam", v=f"{res['lam']:.4f}"),
                 tr("s_dist", v=f"{D_mm:.2f}"),
                 tr("s_center", x=f"{res['cx']:.1f}", y=f"{res['cy']:.1f}"),
-                tr("s_match", m=res["sol"][3], rms=f"{res['sol'][4]:.2f}",
+                tr("s_match", m=_m, rms=f"{res['sol'][4]:.2f}",
                    ps=f"{res['sol'][6]:.3f}"),
-                tr("s_tilt", v=tilt)]))
-        warn = "" if wiz.p2.e_lam.text().strip() else tr("p3_lamwarn")
+                tr("s_tilt", v=tilt)]
+                + ([tr("p3_harmwarn", ph=res["ph"], a=int(_m), d1=f"{D_mm:.0f}",
+                       d2=f"{D_mm*2:.0f}", d3=f"{D_mm*3:.0f}")]
+                   if _harm else [])))
+        self.flow.on_success()      # 爬档解出注记(在正式文本后追加,不覆盖)
+        # 自动 σ(D)(2026-11-07 A4):后台快速档(环级,不含倾角),完成后追加
+        try:
+            self.uncw = UncWorker(wiz.p1.img, res,
+                                  float(wiz.p2.e_px.text() or 172.0),
+                                  b_tilt=0)
+            self.uncw.done.connect(self._unc_done)
+            self.uncw.fail.connect(lambda tb: None)
+            self.uncw.start()
+        except Exception:
+            self.uncw = None
+        warn = "" if wiz.p2._lam_A() is not None else tr("p3_lamwarn")
         self.lab.setText(tr("p3_done") + warn)
         self._ok = res is not None
         self.completeChanged.emit()
+
+    def _unc_done(self, u):
+        """σ(D) 追加到 p3 输出(页面可能已被重建,全 try 兜底)。"""
+        try:
+            bs = u["bs"]
+            if bs is None or bs[0] == "few":
+                return
+            s_, lo_, hi_, n_ = bs
+            self.out.append(tr("s_unc", s=f"{s_:.2f}", lo=f"{lo_:.1f}",
+                               hi=f"{hi_:.1f}", n=n_))
+        except Exception:
+            pass
 
     def isComplete(self):
         return self._ok
