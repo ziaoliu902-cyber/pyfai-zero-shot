@@ -605,6 +605,10 @@ class Wizard(QWizard):
 
 def main():
     global _CUR
+    if "--selftest" in sys.argv:      # 打包自检(2026-11-08):复用主窗口版
+        from gui_solver import _selftest
+        _selftest()
+        return
     app = QApplication(sys.argv)
 
     # pythonw 无控制台：任何未捕获异常写日志，闪退有据可查
