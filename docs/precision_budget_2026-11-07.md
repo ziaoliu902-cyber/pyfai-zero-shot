@@ -264,6 +264,31 @@ R_j 被线表锁死)——**单环部分弧病态,多环共享约束后可辨**�
        对话框骚扰用户——迭代期每次缺件都弹,自检包 try/except 后
        消除)。**终态 selftest 全绿**(7 相库/spline/真图 2527×2463/
        前向),GUI 启动冒烟 ✓。
+   - **向导多帧模式(2026-11-08 深夜,①+②)**:
+     · 拖 ≥2 张自动进多帧:P1 多选(paths)/P2 标样相下拉+λ 必填
+       (窄角域 λ–D 简并破不了)/P3 JointWorker(mean 种子→逐帧
+       cpts→joint LSQ,与批量零分叉)/P4 联合一致性大灯(帧间
+       MAD<1mm 绿)/P5 联合 poni 导出(中位中心+SplineFile);
+     · ②置信度分级:单张按 m/ps 组合分三档(低=m≤5 或 ps<0.35
+       →提示多帧复核)——诚实标注,不承诺判对(次优盆无自证);
+     · i18n 24 词条 × 6 语言(_WIZMULTI 块合并,不动原表);
+     · 冒烟 `_t_wizmulti_smoke`:状态机+52 帧 e2e(D=118.00 vs
+       GT 116.86,方形 px+无 spline 的 ~1mm 级口径差内,见负结果
+       条)+六语言词条+p3/p4/p5 渲染全通;**8 帧实测仍落次优盆
+       (D≈70,MAD/σ 小=盆内自洽)**——域图 B2 据此建议弱衍射 ≥30 帧。
+   - **④b spline 联合层实验(负结果留档)**:`_t_spl_joint.py`
+     在 joint 前向加 k3·r³+k5·r⁵ 径向畸变基全局拟——基线
+     D=117.999(Δ+1.139),加基后 D=118.599(Δ+1.739,更差),
+     k 非零但吸收噪声非真畸变。**k–D 简并实锤**,维持显式 spline
+     口径(与 B13/_t_fwdspl2 教训一致)。
+   - **③门面**:README v0.9 下载段(EN/zh-CN)+结果表 v0.9 行;
+     Actions CI(语法门+引导冒烟+向导打包 selftest)——**首跑即
+     抓到仓库 torchfai/phases.py 陈旧缺 HARMONIC_PHASES**(本地
+     11-06 从未同步,按 mtime 全仓扫描补推后 CI 绿);
+     `docs/route_map.md` 域图决策表(亮度/角域/帧数→路线+诚实边界)。
+   - **网络**:github.com 直连断(IP 被墙),git/requests 需挂
+     127.0.0.1:7897 代理(`git -c http.proxy=...` / requests
+     proxies);api.github.com 直连仍通。上传大 zip 用代理后稳。
    - **GUI**(`batch_gui.py`):🔗 联合标定 checkbox(默认开)、
      表格底行 JOINT、联合 .poni 导出、漂移曲线叠联合带、CSV 追加
      JOINT 行;BatchWorker 按 (相,px) 分组取最大组(静态装置
