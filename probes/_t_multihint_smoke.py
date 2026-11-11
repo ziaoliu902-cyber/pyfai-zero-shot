@@ -6,13 +6,13 @@
 回调可点 ③_multi_hinted 节流 ④六语言词条齐全。弹窗 monkeypatch
 为计数器,不真弹。
 """
+import os
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-ROOT = r"D:\pyfai-project"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # CI 可移植
 sys.path.insert(0, ROOT)
-sys.path.insert(0, ROOT + r"\probes")
-import os
+sys.path.insert(0, os.path.join(ROOT, "probes"))
 os.chdir(ROOT)
 
 from PyQt5.QtWidgets import QApplication, QMessageBox

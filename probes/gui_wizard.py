@@ -45,6 +45,7 @@ class PageImg(QWizardPage):
         self.setTitle(tr("p1_title"))
         self.setSubTitle(tr("p1_sub"))
         self.path = None
+        self.paths = None       # 多帧模式(≥2 张)文件列表,2026-11-08
         self.img = None
         self.img_raw = None    # 校正前的原图（撤销用）
         self.spline = None     # 已应用的 .spline 路径（None=未校正）
@@ -95,27 +96,41 @@ class PageImg(QWizardPage):
     def _drop(self, e):
         urls = [u for u in e.mimeData().urls() if u.isLocalFile()]
         if urls:
-            self._load(urls[0].toLocalFile())
+            self._load_many([u.toLocalFile() for u in urls])
 
     def _pick(self):
-        p, _ = QFileDialog.getOpenFileName(self, tr("p1_pick"), "",
-                                           IMG_FILTER)
-        if p:
-            self._load(p)
+        ps, _ = QFileDialog.getOpenFileNames(self, tr("p1_pick"), "",
+                                             IMG_FILTER)
+        if ps:
+            self._load_many(ps)
 
-    def _load(self, p):
+    def _load_many(self, ps):
+        """单张=经典盲解;≥2 张=🏠多帧平均模式(弱衍射专用,2026-11-08)。
+
+        预览/嗅探取第 1 张;worker 层流式 mean+逐帧控制点+联合 LSQ。
+        """
         try:
-            self.img = load_any(p)
+            img0 = load_any(ps[0])
         except Exception as e:
             QMessageBox.warning(self, tr("p1_openfail"), str(e))
             return
-        self.path = p
+        self.path = ps[0]
+        self.paths = list(ps)
+        self.img = img0
         self.img_raw = None          # 新图=全新会话，样条状态清零（F6）
         self.spline = None
-        self.info.setText(tr("p1_loaded", name=os.path.basename(p),
-                             w=self.img.shape[1], h=self.img.shape[0]))
+        if len(ps) >= 2:
+            self.info.setText(tr("p1_multi", n=len(ps),
+                                 name=os.path.basename(ps[0]),
+                                 w=img0.shape[1], h=img0.shape[0]))
+        else:
+            self.info.setText(tr("p1_loaded", name=os.path.basename(ps[0]),
+                                 w=img0.shape[1], h=img0.shape[0]))
         self._sp_refresh()
         self.completeChanged.emit()
+
+    def _load(self, p):
+        self._load_many([p])
 
     # ── 畸变样条（T-SPL）：F1 入口 / F2 可见可撤销 / F5 边带置零在引擎侧 ──
     def _pick_sp(self):
@@ -186,10 +201,22 @@ class PageParam(QWizardPage):
         self.note = QLabel("")
         self.note.setWordWrap(True)
         g.addWidget(self.note, 2, 0, 3, 1)
+        # 多帧模式的标样相下拉(2026-11-08):mean 种子锁相必选
+        from torchfai.phases import PHASE_NAMES as _PN
+        self.cb_phase = QComboBox()
+        self.cb_phase.addItems(list(_PN))
+        self.cb_phase.setVisible(False)
+        self.ph_lab = QLabel(tr("p2_phase"))
+        self.ph_lab.setVisible(False)
+        g.addWidget(self.ph_lab, 3, 0)
+        g.addWidget(self.cb_phase, 3, 1)
         self.setLayout(g)
 
     def initializePage(self):
         wiz = self.wizard()
+        multi = wiz.p1.paths is not None and len(wiz.p1.paths) >= 2
+        self.cb_phase.setVisible(multi)
+        self.ph_lab.setVisible(multi)
         meta = sniff_meta(wiz.p1.path)
         if "px" in meta:
             self.e_px.setText(f"{meta['px']:g}")
@@ -243,13 +270,94 @@ class PageParam(QWizardPage):
         return self.HC_KEV_A / v if self.cb_lamu.currentIndex() == 1 else v
 
     def validatePage(self):
+        wiz = self.wizard()
+        multi = wiz.p1.paths is not None and len(wiz.p1.paths) >= 2
         try:
             v = float(self.e_px.text())
             assert v > 1
-            return True
         except Exception:
             QMessageBox.warning(self, tr("p2_badpx_title"), tr("p2_badpx"))
             return False
+        if multi and self._lam_A() is None:
+            # 多帧=窄角域弱衍射专用,λ–D 简并破不了(σ39% 实证),必填
+            QMessageBox.warning(self, tr("p2_title"),
+                                tr("p2_needlam_multi"))
+            return False
+        return True
+
+
+class JointWorker(QThread):
+    """多帧弱衍射求解(2026-11-08):复用批量模式同款零分叉口径。
+
+    链:b_route_mean_seed(流式平均+锁相圆解+fit_tilt 种子) → 逐帧
+    cpts_of_frame(fwd=None,数据在线已校正) → joint_solve_frames
+    (全局 D/rot+每帧中心,bootstrap σ)。与 batch_gui._run_joint 同源,
+    种子层 spline=None(向导数据已被 apply_spline 校正)。
+    """
+    done = pyqtSignal(object)
+    prog = pyqtSignal(str)
+
+    def __init__(self, paths, lam_A, phase, px_um, spline=None):
+        super().__init__()
+        self.paths = list(paths)
+        self.lam = lam_A
+        self.phase = phase
+        self.px_um = px_um
+        self.spline = spline      # 仅元数据(导出 poni 带 SplineFile 用)
+
+    def run(self):
+        import numpy as np
+        import solver_core as _sc
+        from torchfai.phases import phase_qs as _pqs
+        try:
+            px_m = self.px_um * 1e-6
+            self.prog.emit(tr("jw_seed", n=len(self.paths)))
+            seed = _sc.b_route_mean_seed(
+                (load_any(f) for f in self.paths), px_m, px_m,
+                self.lam, self.phase)
+            if seed is None:
+                self.done.emit(None)
+                return
+            cx_n = seed["poni2"] / px_m - 0.5
+            cy_n = seed["poni1"] / px_m - 0.5
+            D_n = seed["dist"] / px_m
+            qs = _pqs(self.phase)
+            cpts = []
+            Ds = []
+            for i, f in enumerate(self.paths):
+                self.prog.emit(tr("jw_frame", i=i + 1,
+                                  n=len(self.paths)))
+                try:
+                    img = load_any(f)
+                    c = _sc.cpts_of_frame(img, cx_n, cy_n, D_n, px_m,
+                                          px_m, self.lam, qs)
+                    if c is not None:
+                        cpts.append(c)
+                        if c.get("D"):
+                            Ds.append(c["D"])
+                except Exception:
+                    continue
+            if len(cpts) < 3:
+                self.done.emit(None)
+                return
+            self.prog.emit(tr("jw_joint"))
+            j = _sc.joint_solve_frames(cpts, px_m, px_m, boot=6)
+            if j is None:
+                self.done.emit(None)
+                return
+            j["ph"] = self.phase
+            j["lam"] = self.lam
+            j["px_um"] = self.px_um
+            j["nf_in"] = len(self.paths)
+            j["spline"] = self.spline
+            if len(Ds) >= 3:
+                j["D_mad"] = float(np.median(
+                    np.abs(np.array(Ds) - np.median(Ds))))
+            self.done.emit(j)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self.done.emit(None)
 
 
 class PageSolve(QWizardPage):
@@ -305,6 +413,18 @@ class PageSolve(QWizardPage):
         self._ok = False
         self.pb.setVisible(True)
         lam_t = wiz.p2._lam_A()
+        multi = wiz.p1.paths is not None and len(wiz.p1.paths) >= 2
+        if multi:
+            # 多帧弱衍射:mean 种子+联合(与批量模式同口径,2026-11-08)
+            self.worker = JointWorker(wiz.p1.paths, lam_t,
+                                      wiz.p2.cb_phase.currentText(),
+                                      float(wiz.p2.e_px.text()),
+                                      spline=wiz.p1.spline)
+            self.worker.done.connect(self._done_joint)
+            self.worker.prog.connect(self.lab.setText)
+            self.lab.setText(tr("p3_running"))
+            self.worker.start()
+            return
         self.worker = SolveWorker(wiz.p1.img,
                                   lam_t,
                                   float(wiz.p2.e_px.text()))
@@ -312,6 +432,33 @@ class PageSolve(QWizardPage):
         self.worker.fail.connect(self._fail)
         self.lab.setText(tr("p3_running"))
         self.worker.start()
+
+    def _done_joint(self, j):
+        """多帧联合结果 → 向导 res_j;p4 渲染联合一致性大灯。"""
+        self.pb.setVisible(False)
+        wiz = self.wizard()
+        wiz.res = None
+        wiz.res_j = j
+        if j is None:
+            self.lab.setText(tr("p3_none"))
+            self.out.setPlainText(tr("jw_fail"))
+            self._ok = False
+            self.completeChanged.emit()
+            return
+        sig = j.get("sigma_boot")
+        sig_s = f"{sig:.3f}" if sig is not None else "n/a"
+        mad = j.get("D_mad")
+        mad_s = f"{mad:.3f}" if mad is not None else "n/a"
+        self.out.setPlainText("\n".join([
+            tr("jw_phase", ph=j["ph"]),
+            tr("jw_frames", nf=j["nf"], n_in=j.get("nf_in", j["nf"])),
+            tr("s_lam", v=f"{j['lam']:.4f}"),
+            tr("jw_dist", d=f"{j['dist']*1e3:.3f}", sig=sig_s),
+            tr("jw_mad", mad=mad_s),
+            tr("jw_npts", n=j["npts"], rms=f"{j['rms']*1e3:.1f}")]))
+        self.lab.setText(tr("jw_done"))
+        self._ok = True
+        self.completeChanged.emit()
 
     def _fail(self, tb):
         self.pb.setVisible(False)
@@ -409,6 +556,9 @@ class PageCheck(QWizardPage):
         if self.worker is not None and self.worker.isRunning():
             return
         wiz = self.wizard()
+        if getattr(wiz, "res_j", None) is not None:
+            self._render_joint(wiz.res_j)      # 多帧:联合一致性大灯
+            return
         self.worker = CheckWorker(wiz.p1.img, wiz.res,
                                   float(wiz.p2.e_px.text()))
         self.worker.done.connect(self._done)
@@ -422,8 +572,53 @@ class PageCheck(QWizardPage):
         self._ok = True
         self.completeChanged.emit()
 
+    def _render_joint(self, j):
+        """多帧联合结果④:一致性大灯(2026-11-08)。
+
+        大灯:帧间 D MAD <1mm 绿(静态装置一致性);否则黄(帧解散布大
+        =样品动过/混入异构数据)。置信度:多帧联合本身高可靠(互为
+        校验);单张弱衍射才需要"建议复核"提示(_done 分支)。
+        """
+        t = theme.TOKENS[self.wizard().theme_name]
+        mad = j.get("D_mad")
+        good = mad is None or mad < 1.0
+        sig = j.get("sigma_boot")
+        sig_s = f"{sig:.3f}" if sig is not None else "n/a"
+        lines = [tr("p4j_title", nf=j["nf"]),
+                 tr("jw_dist", d=f"{j['dist']*1e3:.3f}", sig=sig_s),
+                 tr("jw_mad", mad=(f"{mad:.3f}" if mad is not None
+                                   else "n/a")),
+                 tr("p4j_note")]
+        if not good:
+            lines.append(tr("p4j_madbad"))
+        self.out.setPlainText("\n".join(lines))
+        self.big.setText(tr("p4j_ok") if good else tr("p4j_warn"))
+        self.big.setStyleSheet(
+            "color: %s;" % (t["good"] if good else t["warn"]
+                            if "warn" in t else t["danger"]))
+        self._ok = True
+        self.completeChanged.emit()
+
     def _done(self, c):
         self.out.setPlainText("\n".join(c["lines"]))
+        # ②置信度分级(2026-11-08):弱衍射单张"解出但错"(次优盆)无自
+        # 证——用 m/ps 的组合给分级提示,不承诺判对,只标"绿灯多绿"。
+        wiz = self.wizard()
+        res = wiz.res
+        if res is not None:
+            m_, ps_ = int(res["sol"][3]), float(res["sol"][6])
+            lam_given = wiz.p2._lam_A() is not None
+            if m_ <= 5 or ps_ < 0.35:
+                tier, col = tr("c_tier_low"), "danger"
+            elif m_ <= 8 or ps_ < 0.55 or not lam_given:
+                tier, col = tr("c_tier_mid"), "warn"
+            else:
+                tier, col = tr("c_tier_high"), "good"
+            t = theme.TOKENS[wiz.theme_name]
+            self.out.append("")
+            self.out.append(tr("c_tier_line", tier=tier))
+            if col == "danger":
+                self.out.append(tr("c_tier_multi_hint"))
         t = theme.TOKENS[self.wizard().theme_name]
         good = c["dev_max"] is not None and c["dev_max"] < 0.05
         self.big.setText(c["verdict"])
@@ -462,8 +657,10 @@ class PageDone(QWizardPage):
         """回到第 1 步换下一张图：清全部状态，不退出程序。"""
         wiz = self.wizard()
         wiz.res = None
+        wiz.res_j = None
         p1 = wiz.p1
         p1.path = None
+        p1.paths = None
         p1.img = None
         p1.img_raw = None
         p1.spline = None
@@ -481,6 +678,24 @@ class PageDone(QWizardPage):
 
     def initializePage(self):
         wiz = self.wizard()
+        j = getattr(wiz, "res_j", None)
+        if j is not None:
+            sig = j.get("sigma_boot")
+            self.sum.setPlainText("\n".join([
+                tr("p5j_frames", n=j.get("nf_in", j["nf"])),
+                tr("p5_image", name=os.path.basename(wiz.p1.path)),
+                tr("jw_phase", ph=j["ph"]),
+                tr("s_lam", v=f"{j['lam']:.4f}"),
+                tr("jw_dist", d=f"{j['dist']*1e3:.3f}",
+                   sig=(f"{sig:.3f}" if sig is not None else "n/a")),
+                tr("jw_mad", mad=(f"{j['D_mad']:.3f}"
+                                  if j.get("D_mad") is not None
+                                  else "n/a")),
+                tr("jw_npts", n=j["npts"], rms=f"{j['rms']*1e3:.1f}")]
+               + ([tr("sp_line", name=os.path.basename(wiz.p1.spline))]
+                  if wiz.p1.spline else [])
+               + ["", tr("p5_outpath")]))
+            return
         res = wiz.res
         px_um = float(wiz.p2.e_px.text())
         D_mm = res["D_px"] * px_um * 1e-3
@@ -499,10 +714,34 @@ class PageDone(QWizardPage):
 
     def _save(self):
         wiz = self.wizard()
+        j = getattr(wiz, "res_j", None)
         default = os.path.splitext(wiz.p1.path)[0] + "_fit.poni"
         p, _ = QFileDialog.getSaveFileName(self, tr("save_title"), default,
                                            "poni (*.poni)")
         if not p:
+            return
+        if j is not None:
+            # 多帧联合 poni(全局 D/rot+帧间中位中心;口径同批量导出)
+            import numpy as _np
+            p1c = float(_np.median(j["p1s"]))
+            p2c = float(_np.median(j["p2s"]))
+            px = j["px_um"] * 1e-6
+            sig = j.get("sigma_boot")
+            txt = (f"# Joint calibration ({j['nf']} frames, {j['ph']})\n"
+                   f"# sigma_D = "
+                   f"{('%.4f' % sig) if sig else 'n/a'} mm (bootstrap)\n"
+                   f"PixelSize1: {px}\nPixelSize2: {px}\n"
+                   f"Distance: {j['dist']}\n"
+                   f"Poni1: {p1c}\nPoni2: {p2c}\n"
+                   f"Rot1: {j['rot1']}\nRot2: {j['rot2']}\nRot3: 0.0\n"
+                   f"Wavelength: {j['lam'] * 1e-10}\n")
+            if wiz.p1.spline:
+                # F4 口径:在线已校正图+poni 带 SplineFile ≡ 原图+几何
+                txt += f"SplineFile: {wiz.p1.spline}\n"
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(txt)
+            QMessageBox.information(self, tr("saved"),
+                                    tr("saved_msg", p=p))
             return
         from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # noqa
         ai = hybrid_ai(wiz.res, float(wiz.p2.e_px.text()))
@@ -525,6 +764,7 @@ class Wizard(QWizard):
         self.setWizardStyle(QWizard.ModernStyle)
         self.setOption(QWizard.NoBackButtonOnStartPage)
         self.res = None
+        self.res_j = None      # 多帧联合结果(2026-11-08;None=单张会话)
         # 主题令牌（与专家版同一记忆；spec：颜色一律从令牌取）
         from PyQt5.QtCore import QSettings
         self.st = QSettings("pyfai", "gui_solver")
