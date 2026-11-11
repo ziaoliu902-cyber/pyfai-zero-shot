@@ -488,6 +488,7 @@ class PageSolve(QWizardPage):
         from torchfai.phases import HARMONIC_PHASES
         _m = res["sol"][3]
         _harm = (res["ph"] in HARMONIC_PHASES and _m <= 4)
+        _amb = res.get("ambig")     # AgBh↔AgSt 互套(2026-11-08)
         self.out.setPlainText(
             "\n".join([
                 tr("s_phase", ph=res["ph"]),
@@ -497,7 +498,11 @@ class PageSolve(QWizardPage):
                 tr("s_match", m=_m, rms=f"{res['sol'][4]:.2f}",
                    ps=f"{res['sol'][6]:.3f}"),
                 tr("s_tilt", v=tilt)]
-                + ([tr("p3_harmwarn", ph=res["ph"], a=int(_m), d1=f"{D_mm:.0f}",
+                + ([tr("p3_ambig", ph=res["ph"], amb=_amb,
+                       d1=f"{D_mm:.0f}", d2=f"{D_mm*58.38/49.70:.0f}"
+                       if res["ph"] == "AgSt" else f"{D_mm*49.70/58.38:.0f}")]
+                   if _amb else
+                   [tr("p3_harmwarn", ph=res["ph"], a=int(_m), d1=f"{D_mm:.0f}",
                        d2=f"{D_mm*2:.0f}", d3=f"{D_mm*3:.0f}")]
                    if _harm else [])))
         self.flow.on_success()      # 爬档解出注记(在正式文本后追加,不覆盖)

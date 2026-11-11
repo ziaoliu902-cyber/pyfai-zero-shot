@@ -877,6 +877,17 @@ _WIZREDO = {
 }
 for _k, _v in _WIZREDO.items():
     _TABLE[_k].update(_v)
+
+_AMBIG = {
+    "zh": "⚠ 相歧义:{ph} 与 {amb} 的环列同为等比谐波,{d1}mm 下不可分(锁波长也不行)。若是 {amb},对应距离约 {d2}mm——回②填设备近似距离即可锁定。",
+    "zh_TW": "⚠ 相歧義:{ph} 與 {amb} 的環列同為等比諧波,{d1}mm 下不可分(鎖波長也不行)。若是 {amb},對應距離約 {d2}mm——回②填設備近似距離即可鎖定。",
+    "en": "⚠ Phase ambiguity: {ph} vs {amb} share the same harmonic ring series — indistinguishable at {d1} mm (even with λ fixed). If it is {amb}, the distance would be ≈{d2} mm — go back to ② and enter the approximate distance to lock it.",
+    "fr": "⚠ Ambiguïté de phase : {ph} et {amb} partagent la même série harmonique — indiscernables à {d1} mm (même λ fixée). S'il s'agit de {amb}, la distance serait ≈{d2} mm — retour à l'étape ② avec la distance approximative pour verrouiller.",
+    "de": "⚠ Phasenmehrdeutigkeit: {ph} und {amb} teilen dieselbe harmonische Ringreihe — bei {d1} mm ununterscheidbar (auch mit festem λ). Bei {amb} läge die Distanz bei ≈{d2} mm — zurück zu ② mit ungefährer Distanz zum Sperren.",
+    "ru": "⚠ Неоднозначность фазы: {ph} и {amb} дают одинаковый гармонический ряд колец — неразличимы при {d1} мм (даже с фиксированной λ). Если это {amb}, расстояние ≈{d2} мм — вернитесь к ② и введите примерное расстояние.",
+}
+for _k, _v in _AMBIG.items():
+    _TABLE[_k].update({"p3_ambig": _v})
 LANG_NAMES = {"zh": "简体中文", "zh_TW": "正體中文", "en": "English",
               "fr": "Français", "de": "Deutsch", "ru": "Русский"}
 _lang = None

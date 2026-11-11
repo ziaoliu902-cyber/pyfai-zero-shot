@@ -1435,12 +1435,19 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         return r if r is not None else None      # 已是 (ph, sol, λ̂)
 
     def _pack(res, canvas, s, px_c, used_fb, reason, dstat, lstat):
+        # AgBh↔AgSt 歧义标注(2026-11-08):两相环列同为 d1/n 等比谐波,
+        # ≤4 条环时 AgSt 把 D 缩 49.70/58.38 倍即可完美互套——锁 λ 也
+        # 不可分(Pilatus1M=AgBh 图被 AgSt 抢认,λ 盲/锁真 λ 双复现)。
+        # 不改变胜者,只把歧义伴带出去供 GUI 升级警示(近似距离可破)。
+        m_ = int(res[1][3])
+        amb = (("AgBh" if res[0] == "AgSt" else "AgSt")
+               if res[0] in ("AgBh", "AgSt") and m_ <= 4 else None)
         return dict(phase=res[0], sol=res[1], lam=res[2], lam_in=lam_in,
                     lam_sig=(res[3] if len(res) > 3 else None),
                     canvas=canvas, s=s, px_m=px_c,
                     used_fallback=used_fb, fb_reason=reason,
                     ps=float(res[1][6]), rms=float(res[1][4]),
-                    m=int(res[1][3]),
+                    m=m_, ambig=amb,
                     def_ps=dstat[0], def_m=dstat[1], def_rms=dstat[2],
                     lrg_ps=lstat[0], lrg_m=lstat[1], lrg_rms=lstat[2],
                     gap_masked=gap_n)   # B7:自动 mask 像素数(0=无)
