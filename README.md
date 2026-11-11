@@ -10,12 +10,22 @@
 **English** · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.5_preprint-1a365d)]()
+[![Version](https://img.shields.io/badge/version-v0.9.0-1a365d)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
 [![Built for pyFAI](https://img.shields.io/badge/built%20for-pyFAI-013243)]()
 [![Status](https://img.shields.io/badge/status-manuscript_in_preparation-e67e22)]()
 
 </div>
+
+
+## Downloads
+
+No Python needed — Windows portable builds on the [v0.9.0 release](https://github.com/ziaoliu902-cyber/pyfai-zero-shot/releases/tag/v0.9.0):
+
+- 🧙 **DiffBlindWizard** — 5-step wizard for beginners (pick image → confirm → solve → verdict light → export PONI)
+- 🛠 **PyFAI-Blind** — expert window (batch mode, 🔗 joint calibration, 🏠 weak-diffraction mean-frame seed, drift curves)
+
+Both accept --selftest for a headless integrity check.
 
 ---
 
@@ -55,6 +65,7 @@ A **classic-first cascade** over a powder-phase library, arbitrated by a
 | CeO₂ calibrant · 7 distances, 150–450 mm | mean & worst \|ΔD\| = **0.1 mm**, 7/7 converge; classic path 15 ms/frame |
 | Al₂O₃ · 52 static frames | 51/52 solved (one dark frame correctly rejected); scatter **MAD 0.45 mm**; bootstrap σ(D) = **0.47 mm**, ground-truth coverage 6/6 |
 | Cross-instrument · 10 public images (8 evaluable) | phase identified **6/8**; \|ΔD\| ≤ 0.1 mm on **4/8**; tilt ≲ 5 mrad; *every failure attributed* |
+| Weak diffraction (Al₂O₃, deep averaging) · v0.9 | 51-frame mean seed → joint solve: seed \|ΔD\| **0.13 mm**, per-frame MAD **0.08 mm**, σ_boot(D) **0.019 mm**, ~2 min |
 | Independent check | cold-start pyFAI fails **11/11** of the same frames; started from our solution it matches us — the gain is initialization, not a different engine |
 
 <div align="center">

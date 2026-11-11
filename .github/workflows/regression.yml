@@ -1,0 +1,57 @@
+name: regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        shell: pwsh
+        run: |
+          pip install numpy scipy PyQt5 matplotlib fabio pyFAI h5py pyinstaller
+
+      - name: Syntax gate (all core modules)
+        shell: pwsh
+        run: |
+          python -X utf8 -c "import ast,glob;
+          [ast.parse(open(f,encoding='utf-8-sig').read())
+           for f in ['probes/solver_core.py','probes/gui_solver.py',
+                     'probes/gui_wizard.py','probes/batch_gui.py',
+                     'probes/i18n.py','probes/poni_out.py']];
+          print('syntax ok')"
+
+      - name: Guidance-flow smoke (escalation + multi-frame hint, no GUI loop)
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -X utf8 probes/_t_multihint_smoke.py
+
+      # 数据面金丝雀(ceria 锁 λ 级联)需要 ~100MB 测试图,CI 不入库:
+      # push 事件且仓库含 data/real/MX_ceria 时才跑;否则跳过(标记绿)。
+      - name: Solver canary (ceria cascade, data-gated)
+        shell: pwsh
+        run: |
+          if (Test-Path "data/real/MX_ceria") {
+            python -X utf8 probes/_t_spl_reg.py
+          } else {
+            echo "ceria dataset not present — canary skipped (green)"
+          }
+
+      - name: Package selftest (wizard build, headless)
+        shell: pwsh
+        run: |
+          python -X utf8 probes/build_exe.py wizard
+          ./dist/DiffBlindWizard/DiffBlindWizard.exe --selftest

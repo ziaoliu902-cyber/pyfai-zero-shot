@@ -10,12 +10,22 @@
 [English](README.md) · **简体中文** · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.5_preprint-1a365d)]()
+[![Version](https://img.shields.io/badge/version-v0.9.0-1a365d)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
 [![Built for pyFAI](https://img.shields.io/badge/built%20for-pyFAI-013243)]()
 [![Status](https://img.shields.io/badge/status-论文撰写中-e67e22)]()
 
 </div>
+
+
+## 下载
+
+免 Python——Windows 免安装包见 [v0.9.0 Release](https://github.com/ziaoliu902-cyber/pyfai-zero-shot/releases/tag/v0.9.0):
+
+- 🧙 **DiffBlindWizard** — 新手五步向导(选图 → 确认 → 求解 → 判语大灯 → 导出 PONI)
+- 🛠 **PyFAI-Blind** — 专家主窗口(批量、🔗 联合标定、🏠 弱衍射·平均帧种子、漂移曲线)
+
+均支持 --selftest 无头自检。
 
 ---
 
@@ -47,6 +57,7 @@
 | CeO₂ 标样 · 7 个距离，150–450 mm | 平均与最差 \|ΔD\| = **0.1 mm**，7/7 收敛；经典路径 15 毫秒/帧 |
 | Al₂O₃ · 52 张静态帧 | 51/52 解出（1 张暗帧被正确拒绝）；帧间散布 **MAD 0.45 mm**；bootstrap σ(D) = **0.47 mm**，真值覆盖率 6/6 |
 | 跨仪器 · 10 张公开图像（8 张可评估） | 物相识别 **6/8**；\|ΔD\| ≤ 0.1 mm 占 **4/8**；倾角 ≲ 5 mrad；*每个失败都有归因* |
+| 弱衍射(Al₂O₃,深度平均)· v0.9 | 51 帧平均种子→联合解:种子 \|ΔD\| **0.13 mm**、逐帧 MAD **0.08 mm**、σ_boot(D) **0.019 mm**,全程约 2 分钟 |
 | 独立对照 | 零初值 pyFAI 在同样 11 帧上**全部失败**；从我们的解出发它与我们一致——增益来自初始化，而非不同的精化引擎 |
 
 <div align="center">
