@@ -550,7 +550,62 @@ class PageCheck(QWizardPage):
         self.out = QTextEdit(); self.out.setReadOnly(True)
         lay.addWidget(self.big)
         lay.addWidget(self.out, 1)
+        # ④红灯行动条(2026-11-08):按失败模式给路——λ 未填回②填,
+        # 谱弱/环少建议多帧。空按需创建。
+        self.act_row = None
         self.setLayout(lay)
+
+    def _advice(self, c):
+        """④自检失败 → 行动建议(2026-11-08)。
+
+        失败模式分层(与③爬升链互补——③管"解不出",这里管"解出但
+        自检红"):
+        · λ 是联立估的(用户没填)→ 首选回②填已知 λ 重解
+          (联立 λ 错 → 标尺项偏 → 自检必红);
+        · 环数少/谱弱(m≤5 或 ps<0.35)→ 多帧平均最有效
+          (灵敏度③已自动提过,不再重复提);
+        · 其余:填近似距离(层状谐波)或多帧复核。
+        """
+        wiz = self.wizard()
+        res = wiz.res
+        tips = [tr("p4r_head")]
+        lam_given = wiz.p2._lam_A() is not None
+        can_lam = not lam_given and res is not None
+        if can_lam:
+            tips.append(tr("p4r_lam"))
+        if res is not None and (int(res["sol"][3]) <= 5
+                                or float(res["sol"][6]) < 0.35):
+            tips.append(tr("p4r_multi"))
+        elif not can_lam:
+            tips.append(tr("p4r_generic"))
+        self.out.append("\n" + "\n".join(tips))
+        if self.act_row is not None:
+            self.act_row.setParent(None)
+            self.act_row = None
+        self.act_row = QHBoxLayout()
+        if can_lam:
+            b1 = QPushButton(tr("p4r_b_lam"))
+            b1.setProperty("primary", True)
+            b1.clicked.connect(self._go_fill_lam)
+            self.act_row.addWidget(b1)
+        b2 = QPushButton(tr("p4r_b_multi"))
+        b2.clicked.connect(self._go_multi)
+        self.act_row.addWidget(b2)
+        self.act_row.addStretch(1)
+        self.layout().addLayout(self.act_row)
+
+    def _go_fill_lam(self):
+        """带联立 λ̂ 回②:填入框里供核对/修改(减少盲填)。"""
+        wiz = self.wizard()
+        if wiz.res is not None:
+            wiz.p2.e_lam.setText(f"{wiz.res['lam']:.4f}")
+        wiz.p3._ok = False
+        wiz.p3.worker = None            # 旧 worker 作废,回②再走即重解
+        self.wizard().back()
+
+    def _go_multi(self):
+        """回第①步拖多张(弱衍射正道)。"""
+        self.wizard().p5._restart()
 
     def initializePage(self):
         if self.worker is not None and self.worker.isRunning():
@@ -623,6 +678,8 @@ class PageCheck(QWizardPage):
         good = c["dev_max"] is not None and c["dev_max"] < 0.05
         self.big.setText(c["verdict"])
         self.big.setStyleSheet("color: %s;" % (t["good"] if good else t["danger"]))
+        if not good:
+            self._advice(c)          # 红灯给路(2026-11-08)
         self._ok = True
         self.completeChanged.emit()
 

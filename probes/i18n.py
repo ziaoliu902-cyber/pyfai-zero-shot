@@ -824,6 +824,59 @@ _WIZMULTI = {
 }
 for _k, _v in _WIZMULTI.items():
     _TABLE[_k].update(_v)
+
+_WIZREDO = {
+    "zh": {
+        "p4r_head": "—— 自检未过,按下面顺序试:",
+        "p4r_lam": "① 波长 λ 还没填(当前是软件联立估的)→ 回第②步填已知 λ 重解",
+        "p4r_multi": "② 环少/谱弱(单张信噪不够)→ 回第①步多拍几张(≥8)一起拖入",
+        "p4r_generic": "· 填设备近似距离(层状标样)破环序简并,或多帧复核",
+        "p4r_b_lam": "← 回②填 λ 重解",
+        "p4r_b_multi": "← 回①拖多张",
+    },
+    "zh_TW": {
+        "p4r_head": "—— 自檢未過,按下面順序試:",
+        "p4r_lam": "① 波長 λ 還沒填(目前是軟體聯立估的)→ 回第②步填已知 λ 重解",
+        "p4r_multi": "② 環少/譜弱(單張信噪不夠)→ 回第①步多拍幾張(≥8)一起拖入",
+        "p4r_generic": "· 填設備近似距離(層狀標樣)破環序簡並,或多幀覆核",
+        "p4r_b_lam": "← 回②填 λ 重解",
+        "p4r_b_multi": "← 回①拖多張",
+    },
+    "en": {
+        "p4r_head": "—— Self-check failed. Try in this order:",
+        "p4r_lam": "① λ not given yet (currently joint-estimated) → go back to step ②, enter the known λ and re-solve",
+        "p4r_multi": "② Few/faint rings (single frame lacks SNR) → back to step ①, shoot ≥8 frames and drop them together",
+        "p4r_generic": "· Enter an approximate distance (layered calibrants) to break ring-order degeneracy, or re-check with multiple frames",
+        "p4r_b_lam": "← step ②, fill λ",
+        "p4r_b_multi": "← step ①, drop multiple",
+    },
+    "fr": {
+        "p4r_head": "—— Auto-contrôle échoué. Essayez dans cet ordre :",
+        "p4r_lam": "① λ non renseignée (actuellement estimée) → retour à l'étape ②, saisir λ connue et résoudre à nouveau",
+        "p4r_multi": "② Peu d'anneaux / spectre faible → retour à l'étape ①, prendre ≥8 images et les déposer ensemble",
+        "p4r_generic": "· Saisir une distance approximative (étalons lamellaires) ou revérifier en multi-images",
+        "p4r_b_lam": "← étape ②, saisir λ",
+        "p4r_b_multi": "← étape ①, plusieurs images",
+    },
+    "de": {
+        "p4r_head": "—— Selbstprüfung fehlgeschlagen. In dieser Reihenfolge versuchen:",
+        "p4r_lam": "① λ noch nicht angegeben (derzeit geschätzt) → zurück zu Schritt ②, bekannte λ eintragen und neu lösen",
+        "p4r_multi": "② Wenige/schwache Ringe → zurück zu Schritt ①, ≥8 Bilder aufnehmen und gemeinsam ablegen",
+        "p4r_generic": "· Ungefähre Distanz eintragen (schichtige Standards) oder mit mehreren Bildern prüfen",
+        "p4r_b_lam": "← Schritt ②, λ eintragen",
+        "p4r_b_multi": "← Schritt ①, mehrere Bilder",
+    },
+    "ru": {
+        "p4r_head": "—— Самопроверка не пройдена. Пробуйте по порядку:",
+        "p4r_lam": "① λ не задана (сейчас оценена совместно) → вернуться к шагу ②, ввести известную λ и решить заново",
+        "p4r_multi": "② Мало/слабые кольца → вернуться к шагу ①, снять ≥8 кадров и загрузить вместе",
+        "p4r_generic": "· Ввести примерное расстояние (слоистые образцы) или перепроверить многокадрово",
+        "p4r_b_lam": "← шаг ②, ввести λ",
+        "p4r_b_multi": "← шаг ①, несколько кадров",
+    },
+}
+for _k, _v in _WIZREDO.items():
+    _TABLE[_k].update(_v)
 LANG_NAMES = {"zh": "简体中文", "zh_TW": "正體中文", "en": "English",
               "fr": "Français", "de": "Deutsch", "ru": "Русский"}
 _lang = None
