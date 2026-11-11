@@ -979,6 +979,15 @@ def _solve_auto_at(canvas, lam, px_m, cx0, cy0, phases, dbg, D_ref_m,
     if len(keep) >= 2 and keep[0][0] - keep[1][0] <= 1.0 \
             and keep[1][6] > keep[0][6]:
         keep[0], keep[1] = keep[1], keep[0]
+    # 常见性先验(2026-11-08,用户拍板选项2):AgBh 是低角事实标准,
+    # AgSt 小众。两相环列等比互套,≤4 环不可分(锁 λ 亦然,Pilatus1M
+    # 实证)——近平局(ps 差<0.03 且 cov 差≤1.0)偏 AgBh 符合真实
+    # 出现频率;真 AgSt 数据 ps/cov 显著更优,不受影响。
+    _jb = next((i for i, c in enumerate(keep) if c[4] == "AgBh"), None)
+    if _jb is not None and keep[0][4] == "AgSt" and _jb > 0 \
+            and keep[0][1] - keep[_jb][1] < 0.03 \
+            and keep[0][0] - keep[_jb][0] <= 1.0:
+        keep[0], keep[_jb] = keep[_jb], keep[0]
     return keep[0][4], keep[0][5]
 
 
@@ -1220,6 +1229,12 @@ def solve_auto_lambda(canvas, px_m, lam_lo=0.12, lam_hi=2.50, n_s=24,
     if not cands:
         return None
     cands.sort(key=lambda c: c[0], reverse=True)
+    # 常见性先验(2026-11-08):同 _solve_auto_at——AgBh↔AgSt 等比互套
+    # 近平局(ps 差<0.03)偏 AgBh(低角事实标准,真实出现频率高)。
+    _jb = next((i for i, c in enumerate(cands) if c[1] == "AgBh"), None)
+    if _jb is not None and cands[0][1] == "AgSt" and _jb > 0 \
+            and cands[0][0][0] - cands[_jb][0][0] < 0.03:
+        cands[0], cands[_jb] = cands[_jb], cands[0]
     best = cands[0]
     top3 = [(ph, sol, lam) for _k, ph, sol, lam in cands[:3]]
     seen = {best[3]}
