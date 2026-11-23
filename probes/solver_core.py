@@ -2013,3 +2013,58 @@ def joint_solve_frames(cpts_list, px1, px2, boot=6, seed=3, spline=None):
         out["sigma_boot"] = (float(np.std(Ds_b))
                              if len(Ds_b) >= 3 else None)
     return out
+
+def joint_solve_frames_robust(cpts_list, px1, px2, boot=6, seed=3, spline=None,
+                              k_sigma=3.0, max_iter=2, min_frames=2):
+    """抗差版多帧联合标定：先全体拟合，再按每帧残差剔除离群帧并重拟合。
+
+    动机（CLS 实证 2026-11-23）：联合是"如实汇总"，一个落错盆的帧
+    （realgar 309 mm / orpiment 192 mm）会把全局距离拖偏 10 mm；
+    剔除后剩下的一致帧仍能给出稳定解。
+    返回 joint_solve_frames 的 dict，另加 dropped（被剔除的帧序号）
+    与 nf_kept（保留帧数）。
+    """
+    from poni_out import make_pyfai_fwd
+
+    live_idx = [i for i, c in enumerate(cpts_list) if c is not None]
+    if len(live_idx) < min_frames:
+        return None
+    out = joint_solve_frames(cpts_list, px1, px2, boot=boot, seed=seed,
+                             spline=spline)
+    if out is None:
+        return out
+    fwd = make_pyfai_fwd(px1, px2, spline)
+    dropped = []
+    for _ in range(max_iter):
+        live = [cpts_list[i] for i in live_idx]
+        D1 = np.concatenate([c["d1"] for c in live])
+        D2 = np.concatenate([c["d2"] for c in live])
+        TT = np.concatenate([c["tth"] for c in live])
+        W = np.concatenate([c["w"] for c in live])
+        W = W / W.mean()
+        FR = np.concatenate([[k] * len(c["d1"]) for k, c in enumerate(live)])
+        p1s = np.asarray(out["p1s"], float)
+        p2s = np.asarray(out["p2s"], float)
+        if p1s.size != len(live):
+            break
+        r = (fwd(out["dist"], p1s[FR], p2s[FR], out["rot1"], out["rot2"],
+                 D1, D2) - TT) * W
+        fr = np.array([float(np.sqrt(np.mean(r[FR == k] ** 2)))
+                       for k in range(len(live))])
+        med = float(np.median(fr[np.isfinite(fr)]))
+        if not np.isfinite(med) or med <= 0:
+            break
+        keep = np.isfinite(fr) & (fr <= k_sigma * med)
+        if keep.all() or keep.sum() < min_frames:
+            break
+        dropped += [live_idx[k] for k in np.nonzero(~keep)[0]]
+        live_idx = [live_idx[k] for k in np.nonzero(keep)[0]]
+        sub = [cpts_list[i] for i in range(len(cpts_list)) if i in set(live_idx)]
+        out = joint_solve_frames(sub, px1, px2, boot=boot, seed=seed,
+                                 spline=spline)
+        if out is None:
+            break
+    out = dict(out)
+    out["dropped"] = dropped
+    out["nf_kept"] = len(live_idx)
+    return out
