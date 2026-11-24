@@ -890,6 +890,9 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
         cands.append((cov_score, m, -rms, cx, cy, D, icorr, pscore))
     if not cands:
         return None
+    ps_max = max(c[7] for c in cands)
+    if ps_max >= 0.40:
+        cands = [c for c in cands if c[7] >= ps_max - 0.25]
     cands.sort(reverse=True)
     cs, m, neg_rms, cx, cy, D, icorr, ps = cands[0]
     return (cx, cy, D, m, -neg_rms, icorr, ps)
@@ -930,9 +933,12 @@ def consensus_pick(cands, d_tol=0.02, c_tol=12.0):
                     and np.hypot(si[0] - sj[0], si[1] - sj[1]) < c_tol):
                 v += 1
         votes.append(v)
-    k = max(range(len(ok)),
-            key=lambda i: (votes[i], ok[i][1][6], ok[i][1][3],
-                           -ok[i][1][4]))
+    def _ckey(i):
+        s = ok[i][1]
+        ps_hi = 1 if s[6] >= 0.25 else 0
+        return (votes[i], ps_hi, (s[6] if ps_hi else 0.0), s[3], -s[4])
+
+    k = max(range(len(ok)), key=_ckey)
     return ok[k][0], ok[k][1], votes[k]
 
 
