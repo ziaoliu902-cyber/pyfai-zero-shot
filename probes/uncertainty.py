@@ -31,8 +31,13 @@ def _kasa(px, py):
     return a0 / 2.0, b0 / 2.0, float(np.sqrt(r2))
 
 
-def dist_sigma(img, cx, cy, D_px, qs, lam, px_m, half=3.0, min_rings=3):
-    """D 的 1σ（与 D_px 同单位：像素）。px_m=单个像素的米制尺寸。"""
+def dist_center_sigma(img, cx, cy, D_px, qs, lam, px_m, half=3.0, min_rings=3):
+    """几何参数 (D, cx, cy) 的 1σ 不确定度估计（环间一致性）。
+
+    返回：
+      (sD_px, scx_px, scy_px) 元组（单位均为像素）。
+      环数 < min_rings 时返回 (0.0, 0.0, 0.0) 表示未估。
+    """
     qs = np.asarray(qs, float)
     H, W = img.shape
     yy, xx = np.mgrid[0:H, 0:W]
@@ -40,7 +45,7 @@ def dist_sigma(img, cx, cy, D_px, qs, lam, px_m, half=3.0, min_rings=3):
     tt = 2.0 * np.arcsin(np.clip(lam_A * qs / (4 * np.pi), 0, 0.999))
     radii = D_px * np.tan(tt)
     r_edge = min(cx, cy, W - 1 - cx, H - 1 - cy)
-    Ds = []
+    Ds, cxs, cys = [], [], []
     for r0, t in zip(radii, tt):
         if r0 < 30 or r0 > 0.9 * r_edge or t <= 0:
             continue
@@ -73,9 +78,22 @@ def dist_sigma(img, cx, cy, D_px, qs, lam, px_m, half=3.0, min_rings=3):
         if res is None:
             continue
         Ds.append(res[2] / np.tan(t))
+        cxs.append(res[0])
+        cys.append(res[1])
+
     if len(Ds) < min_rings:
-        return 0.0
-    return float(np.std(Ds, ddof=1) / np.sqrt(len(Ds)))
+        return 0.0, 0.0, 0.0
+    sD = float(np.std(Ds, ddof=1) / np.sqrt(len(Ds)))
+    scx = float(np.std(cxs, ddof=1) / np.sqrt(len(cxs)))
+    scy = float(np.std(cys, ddof=1) / np.sqrt(len(cys)))
+    return sD, scx, scy
+
+
+def dist_sigma(img, cx, cy, D_px, qs, lam, px_m, half=3.0, min_rings=3):
+    """D 的 1σ（保持既有接口完全兼容，单位：像素）。"""
+    sD, _, _ = dist_center_sigma(img, cx, cy, D_px, qs, lam, px_m,
+                                 half=half, min_rings=min_rings)
+    return sD
 
 
 def tilt_with_sigma(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1,

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """gui_solver.py：衍射图盲解 GUI（2026-11-02，T-GUI）。
 
  PyQt5 + matplotlib 零新依赖。功能：
@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QPushButton, QLabel, QLineEdit,
     QFileDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit,
     QProgressBar, QMessageBox, QGroupBox, QFormLayout, QComboBox, QSlider,
-    QInputDialog)
+    QInputDialog, QCheckBox, QTabWidget)
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -41,12 +41,12 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 
-from solver_core import (to_canvas, solve_image, ring_radii,
+from solver_core import (to_canvas, solve_image, ring_radii, auto_offset,
                          refine_geometry_2d, _r_model, register_mask)
 from torchfai.phases import phase_qs, HARMONIC_PHASES
 from i18n import tr
 
-VERSION = "0.8.0"   # 版本单一源(C13):GUI 标题/报告/打包脚本共同引用
+VERSION = "0.9.6"   # 版本单一源(C13):GUI 标题/报告/打包脚本共同引用
 
 
 def apply_spline(img, sp_path):
@@ -227,6 +227,93 @@ def hybrid_ai(res, px_um):
                                wavelength=res["lam"] * 1e-10)
 
 
+CHECK_NPT_CAP = None      # 全局上限（换相救援时降到 4000 提速）
+
+
+def auto_canvas_side(img):
+    """小角自动判定（2026-11-12）：粗画布上找环，若最外环半径 < 画幅短边的
+    15%，判定"环挤在中心"→ 返回大画布边长；否则 None（走默认画布）。
+    SDD230 实测 rmax/min(shape)=0.094 → 触发；ceria_150 为 0.24 → 不触发。"""
+    try:
+        c, s, _, _ = to_canvas(img, max_side=720)
+        c = np.asarray(c, dtype=np.float64)
+        h, w = c.shape
+        peaks, prof, bp, good = ring_radii(c, (w - 1) / 2.0, (h - 1) / 2.0)
+        if not peaks:
+            return None
+        rmax = max(pk[0] for pk in peaks)
+        ratio = rmax * s / float(min(img.shape))
+        if ratio < 0.20:
+            return max(720, int(max(img.shape) / 3))
+    except Exception:
+        pass
+    return None
+
+
+def pick_canvas_v2(img, px_m, lam, mask, res1, forced_side):
+    """三级画布选优（m 优先、等 m 取小 rms）。返回 (best_res, used_side)。
+
+    仅当首轮匹配环数 < 10 且用户未强制画布时才升级；每级一次求解。
+    """
+    if res1 is None or forced_side:
+        return res1, forced_side
+    # 2026-11-19：小图（<1000 px）不升级——画布上限本就不该超过原图尺寸，
+    # 否则 720/1440 的画布反而"上采样"，既慢又无意义（合成扫描实测 200s/例）。
+    if min(img.shape) < 1000:
+        return res1, forced_side
+    m1 = int(res1["sol"][3])
+    if m1 >= 10:
+        return res1, forced_side
+    best, best_side = res1, forced_side
+    best_key = (m1, -float(res1["sol"][4]))
+    H, W = img.shape
+    for side in (max(720, int(max(H, W) / 3)), int(max(H, W) / 2)):
+        try:
+            r = solve_image(img, px_m, lam=(lam if lam else None),
+                            mask=mask, canvas_side=side)
+        except Exception:
+            r = None
+        if r is None:
+            continue
+        key = (int(r["sol"][3]), -float(r["sol"][4]))
+        if key > best_key:
+            best, best_side, best_key = r, side, key
+    return best, best_side
+
+
+def refine_multi_seed(img, cx0, cy0, D0, qs, lam, phase, px_um):
+    """多种子 2D 精化（2026-11-12）：1D 的 D 可能偏 3%（环密时峰配对错位），
+    而 refine_geometry_2d 基本停在种子上。故在 D0 附近扫几个种子，
+    用自检偏差选优，返回 (score, (cx, cy, D_px, nr), k)。"""
+    global CHECK_NPT_CAP
+    ds = 2 if min(img.shape) >= 800 else 1
+    im = img if ds == 1 else img[::ds, ::ds]
+    px_um2 = px_um * ds
+    old = CHECK_NPT_CAP
+    CHECK_NPT_CAP = 3000
+    best = None
+    try:
+        for k in (0.90, 0.95, 1.00, 1.05):
+            o = refine_geometry_2d(img, cx0, cy0, D0 * k, qs, lam, n_iter=3)
+            if o is None:
+                continue
+            cx, cy, Dpx, nr = o
+            res = dict(ph=phase, lam=lam, D_px=Dpx / ds, cx=cx / ds,
+                       cy=cy / ds, sol=np.array([cx / ds, cy / ds, Dpx / ds,
+                                                 nr, 0, 0, 0]),
+                       tf=None, tilt_on=False)
+            c = check_std(im, res, px_um2, None)
+            dev = c.get("dev_max")
+            if dev is None or c.get("n", 0) < 4:
+                continue
+            score = (dev, -c["n"])
+            if best is None or score < best[0]:
+                best = (score, (cx, cy, Dpx, nr), k)
+    finally:
+        CHECK_NPT_CAP = old
+    return best
+
+
 def check_std(img, res, px_um, mask=None):
     """标样自检：解出的 poni 积分 1D → 自动找峰 → 对相库答案卡。
 
@@ -245,6 +332,8 @@ def check_std(img, res, px_um, mask=None):
         except Exception:
             pass
     _npt = 16000 if img.size <= 4_000_000 else 6000
+    if CHECK_NPT_CAP:
+        _npt = min(_npt, int(CHECK_NPT_CAP))
     tth, I = ai.integrate1d(img, _npt, unit="2th_deg",
                             method="bbox,splitpixel")
     med = float(np.median(I))
@@ -397,15 +486,74 @@ class CheckWorker(QThread):
             self.fail.emit(traceback.format_exc(limit=6))
 
 
+class PhaseRescueWorker(QThread):
+    """自检失败后，逐个试其余相（锁相求解），挑自检误差最小的。"""
+    done = pyqtSignal(object)
+    fail = pyqtSignal(str)
+
+    def __init__(self, img, lam, px_um, mask, cur_phase, cur_dev):
+        super().__init__()
+        self.img, self.lam, self.px_um = img, lam, px_um
+        self.mask, self.cur_phase, self.cur_dev = mask, cur_phase, cur_dev
+
+    def run(self):
+        global CHECK_NPT_CAP
+        try:
+            from torchfai.phases import PHASES
+            # 提速：判相不需要原生分辨率——2× 降采样 + 积分点数封顶
+            ds = 2 if min(self.img.shape) >= 800 else 1
+            img = self.img if ds == 1 else self.img[::ds, ::ds]
+            mask = None if self.mask is None else self.mask[::ds, ::ds]
+            px_um = self.px_um * ds
+            px_m = px_um * 1e-6
+            CHECK_NPT_CAP = 4000
+            best = None
+            for ph in PHASES:
+                if ph == self.cur_phase:
+                    continue
+                r = solve_image(img, px_m, lam=self.lam,
+                                phases=[ph], mask=mask,
+                                solve_kw=dict(cascade=False, auto_center=True,
+                                              refine_2d=False))
+                if r is None:
+                    continue
+                s_ = r["s"]
+                res = dict(ph=r["phase"], lam=r["lam"],
+                           D_px=r["sol"][2] * s_, cx=r["sol"][0] * s_,
+                           cy=r["sol"][1] * s_, sol=r["sol"], tf=None,
+                           tilt_on=False, native=False,
+                           canvas=r["canvas"], s=s_)
+                c = check_std(img, res, px_um, mask)
+                if c.get("dev_max") is None or c.get("n", 0) < 3:
+                    continue
+                score = (c["dev_max"], -c["n"])
+                if best is None or score < best[0]:
+                    best = (score, res, c, ds)
+            if best is not None and best[3] != 1:
+                # 降采样帧 → 原生帧
+                d = best[3]
+                r0 = best[1]
+                r0["D_px"] *= d
+                r0["cx"] *= d
+                r0["cy"] *= d
+                r0["s"] = r0.get("s", 1)
+            self.done.emit(best)
+        except Exception:
+            self.fail.emit(traceback.format_exc(limit=6))
+        finally:
+            CHECK_NPT_CAP = None
+
+
 class SolveWorker(QThread):
     done = pyqtSignal(object)
     fail = pyqtSignal(str)
 
-    def __init__(self, img, lam, px_um, mask=None, dref=None):
+    def __init__(self, img, lam, px_um, mask=None, dref=None, canvas_side=None):
         super().__init__()
         self.img, self.lam, self.px_um = img, lam, px_um
         self.mask = mask
         self.dref = dref
+        self.canvas_side = canvas_side
 
     def run(self):
         try:
@@ -414,12 +562,34 @@ class SolveWorker(QThread):
             # 收敛到 solver_core.solve_image（默认档 520；零样本安全门
             # a/b/c 触发才升级大画布）。旧直调 solve_auto/solve_auto_lambda
             # + to_canvas 已废——同一算法 GUI 与基准必须同一答案。----
+            _cs = self.canvas_side
+            _auto = False
+            if _cs is None:
+                _cs = auto_canvas_side(img)
+                _auto = _cs is not None
+            if _cs is not None:
+                self.canvas_side = _cs     # 让下游多种子精化也走大画布分支
             res = solve_image(img, self.px_um * 1e-6,
                               lam=(float(self.lam) if self.lam else None),
-                              mask=self.mask)
+                              mask=self.mask,
+                              canvas_side=_cs)
+            if res is not None and _auto:
+                res["auto_small"] = True
             if res is None:
                 self.done.emit(None)
                 return
+            # 2026-11-17：自动画布选择 v2（m 优先/等 m 取小 rms）
+            try:
+                _best, _side = pick_canvas_v2(
+                    img, self.px_um * 1e-6,
+                    (float(self.lam) if self.lam else None),
+                    self.mask, res, _cs)
+                if _best is not res:
+                    res = _best
+                    res["auto_small"] = _side is not None
+                    res["ladder_side"] = _side
+            except Exception:
+                pass
             canvas, s = res["canvas"], res["s"]
             px_m = self.px_um * 1e-6 * s
             ph, sol, lam = res["phase"], res["sol"], res["lam"]
@@ -452,6 +622,19 @@ class SolveWorker(QThread):
             else:
                 cx, cy, D_px, nr = (sol[0] * s, sol[1] * s,
                                     sol[2] * s, 0)
+            # 小角模式：1D 峰配对在密环下偏 ~3%，单种子 2D 精化又基本停在
+            # 种子上（2026-11-12 SDD230 实证）。多扫几个种子按自检选优：
+            # 237.4(3.4%) → 226.8(1.2%)、dev 0.186→0.063。
+            if getattr(self, "canvas_side", None):
+                try:
+                    _ms = refine_multi_seed(img, cx, cy, D_px, qs, lam,
+                                            ph, self.px_um)
+                    if _ms is not None:
+                        cx, cy, D_px, nr = _ms[1]
+                        native = True
+                        res["multi_seed_k"] = _ms[2]
+                except Exception:
+                    pass
             # 倾角层（fit_tilt 控制点 5 参）。种子策略与门控（P2M 实证
             # 2026-11-02）：T7 接受时用 T7 精化值做种子（rot 估计从
             # (+34,−7) 噪声底收敛到 (0,−2) mrad）；且倾角改善不足 5%
@@ -518,16 +701,16 @@ class SolveWorker(QThread):
             except Exception:
                 pass
             # —— 精度（不需要 GT 的经验估计，见 uncertainty.py）——
-            sD_mm = 0.0
+            sD_mm = scx_px = scy_px = 0.0
             s_r1 = s_r2 = 0.0
             try:
-                from uncertainty import dist_sigma
+                from uncertainty import dist_center_sigma
                 if native:
-                    sD_px = dist_sigma(img, cx, cy, D_px, qs, lam,
-                                       self.px_um * 1e-6)
+                    sD_px, scx_px, scy_px = dist_center_sigma(
+                        img, cx, cy, D_px, qs, lam, self.px_um * 1e-6)
                     sD_mm = sD_px * self.px_um * 1e-3
             except Exception:
-                sD_mm = 0.0
+                sD_mm = scx_px = scy_px = 0.0
             if tf is not None:
                 try:
                     tf_lo = _ft(scv, scx, scy, sDc, qs, lam,
@@ -547,9 +730,15 @@ class SolveWorker(QThread):
                                 tf_native=tf_native,
                                 gap_masked=res.get("gap_masked", 0),
                                 distort_red=_dr,
-                                sD_mm=sD_mm, s_r1=s_r1, s_r2=s_r2,
+                                sD_mm=sD_mm, scx_px=scx_px, scy_px=scy_px,
+                                s_r1=s_r1, s_r2=s_r2,
+                                az_coverage=res.get("az_coverage", 1.0),
+                                is_partial_arc=res.get("is_partial_arc", False),
+                                cv=res.get("cv"),
+                                pv_ref=res.get("pv_ref"),
                                 ring_rms=ring_rms_v, ring_n=ring_n,
                                 center_src=center_src,
+                                auto_small=bool(res.get("auto_small")),
                                 lam_free=not self.lam))
         except Exception:
             self.fail.emit(traceback.format_exc(limit=6))
@@ -828,6 +1017,10 @@ class Win(QMainWindow):
         self.sl_contrast.valueChanged.connect(self._on_contrast)
         par_f.addRow(QLabel("显示对比度"), self.sl_contrast)
         par_f.addRow(QLabel("近似距离"), self.e_dref)
+        self.cb_small = QCheckBox("小角模式（大画布）")
+        self.cb_small.setToolTip("近距离/环挤在画面中心时勾选：用更大画布，\n"
+                                 "保住小半径的环（否则会被降采样压没）")
+        par_f.addRow(self.cb_small)
         g_par.setLayout(par_f)
 
         g_run = QGroupBox("运行")
@@ -861,9 +1054,15 @@ class Win(QMainWindow):
         self.b_report.clicked.connect(self.export_report)
         self.b_report.setEnabled(False)
         self.b_report.setToolTip("Markdown + PDF：参数表/环叠图/自检判语/σ/警告旗")
+        self.b_shared_tilt = QPushButton("🔗 变距共享倾角…")
+        self.b_shared_tilt.clicked.connect(self.run_shared_tilt_dialog)
+        self.b_shared_tilt.setToolTip("多距离导轨扫描：多帧共享倾角 (rot1, rot2)，逐帧解距离与束心")
+        self.b_az_stack = QPushButton("🔄 残弧方位角堆叠…")
+        self.b_az_stack.clicked.connect(self.run_az_stack_dialog)
+        self.b_az_stack.setToolTip("多帧部分残弧对齐堆叠合成虚拟全环，打破单帧欠定简并")
         for b in (self.b_run, self.b_check, self.b_mask, self.b_maskclear,
                   self.b_maskinv, self.b_poni, self.b_copy, self.b_unc,
-                  self.b_report):
+                  self.b_report, self.b_shared_tilt, self.b_az_stack):
             run_l.addWidget(b)
         g_run.setLayout(run_l)
 
@@ -903,9 +1102,21 @@ class Win(QMainWindow):
         self.cv2 = FigureCanvasQTAgg(self.fig2)
         self.ax2 = self.fig2.add_subplot(111)
         self.ax2.set_title("径向谱（画布）", fontsize=9)
+
+        from confidence_map import draw_confidence_map
+        self.fig_conf = Figure(figsize=(3.4, 2.6))
+        self.cv_conf = FigureCanvasQTAgg(self.fig_conf)
+        self.ax_conf = self.fig_conf.add_subplot(111)
+        draw_confidence_map(self.ax_conf, title="二维置信度空间 (m vs ps)")
+        self.fig_conf.tight_layout()
+
+        self.tab_plot = QTabWidget()
+        self.tab_plot.addTab(self.cv2, "📈 径向谱")
+        self.tab_plot.addTab(self.cv_conf, "🎯 置信度空间")
+
         right_l = QVBoxLayout()
         right_l.addWidget(self.txt, 3)
-        right_l.addWidget(self.cv2, 2)
+        right_l.addWidget(self.tab_plot, 2)
         right_w = QWidget(); right_w.setLayout(right_l)
 
         # ---- 底栏 ----
@@ -957,10 +1168,15 @@ class Win(QMainWindow):
         self.theme_name = name
         theme.apply_app(QApplication.instance(), name)
         theme.use_mpl(name)
-        for ax in (self.ax, self.ax2):
+        axes_to_style = [self.ax, self.ax2]
+        if hasattr(self, "ax_conf") and self.ax_conf is not None:
+            axes_to_style.append(self.ax_conf)
+        for ax in axes_to_style:
             theme.restyle_axes(ax, name)
         self.cv.draw_idle()
         self.cv2.draw_idle()
+        if hasattr(self, "cv_conf"):
+            self.cv_conf.draw_idle()
         self.b_theme.setText("☀️ 亮色主题" if name == "dark" else "🌙 暗色主题")
         self.st.setValue("theme", name)
 
@@ -1063,6 +1279,7 @@ class Win(QMainWindow):
     def _load(self, p):
         try:
             self.img = load_any(p)
+            self.img = auto_offset(self.img)   # 负 offset 自动扣除（Varex 等平板）
         except Exception as e:
             QMessageBox.warning(self, "打开失败", str(e))
             return
@@ -1180,9 +1397,14 @@ class Win(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             return
         px = float(self.e_px.text() or 172.0)
+        self._rescue_tried = False
+        _cs = None
+        if getattr(self, "cb_small", None) is not None and self.cb_small.isChecked():
+            _cs = max(720, int(max(self.img.shape) / 3))
         self.worker = SolveWorker(self.img, self._lam_A(), px,
                                   mask=self.mask,
-                                  dref=(self.e_dref.text().strip() or None))
+                                  dref=(self.e_dref.text().strip() or None),
+                                  canvas_side=_cs)
         self.worker.done.connect(self.on_done)
         self.worker.fail.connect(self.on_fail)
         self.b_run.setEnabled(False); self.pb.setVisible(True)
@@ -1248,14 +1470,45 @@ class Win(QMainWindow):
                        if s_prop else "）")
         else:
             d_line = f"距离 D: {D_mm:.2f} mm  ± 未估（环不足）"
+        m_val = int(res['sol'][3])
+        ps_val = float(res['sol'][6])
+        cv_res = res.get("cv")
+        cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
+        from confidence_map import evaluate_confidence
+        conf_eval = evaluate_confidence(m=m_val, ps=ps_val,
+                                        az_cov=res.get("az_coverage", 1.0),
+                                        cv_ratio=cv_ratio)
         lines = [
             f"物相: {res['ph']}",
             f"波长 λ̂: {res['lam']:.4f} Å" + ("" if not res["native"] else "（联合解）"),
             d_line,
             f"束心: ({res['cx']:.1f}, {res['cy']:.1f}) px（原生）",
-            f"匹配环数 m={res['sol'][3]}  rms={res['sol'][4]:.2f}px  ps={res['sol'][6]:.3f}",
-            f"2D 精化: {'✓ ' + str(res['n2d']) + ' 环（中心已用）' if res['native'] else '环不完整→跳过（部分弧 Kasa 易拉偏）'}",
         ]
+        if res.get("scx_px", 0) > 0 or res.get("scy_px", 0) > 0:
+            lines.append(
+                f"束心 σ: ±({res['scx_px']:.2f}, {res['scy_px']:.2f}) px（环间一致性 1σ）"
+            )
+        lines.extend([
+            f"匹配环数 m={m_val}  rms={res['sol'][4]:.2f}px  ps={ps_val:.3f}",
+            f"置信度: {conf_eval['badge']}",
+            f"2D 精化: {'✓ ' + str(res['n2d']) + ' 环（中心已用）' if res['native'] else '环不完整→跳过（部分弧 Kasa 易拉偏）'}",
+        ])
+        pv_ref = res.get("pv_ref")
+        if pv_ref and pv_ref.get("applied"):
+            lines.append(
+                f"PV 峰形精化: ✓ {pv_ref['n_rings']} 环（残差 {pv_ref['rms_raw']:.2f}→{pv_ref['rms_pv']:.2f}px）"
+            )
+        if cv_res:
+            if cv_res.get("passed"):
+                lines.append(
+                    f"拆分交叉验证 (m≤5): ✓ cv_ratio={cv_res['cv_ratio']:.2f}（通过）"
+                )
+            else:
+                lines.append(
+                    f"⚠ 拆分交叉验证 (m≤5): {cv_res.get('verdict', '未通过')}"
+                )
+        if conf_eval['tier'] in ('LOW', 'PARTIAL_ARC'):
+            lines.append(f"  └ 提示: {conf_eval['recommendation']}")
         q_rms = res.get("ring_rms", 0.0)
         if q_rms > 0:
             lines.append(f"几何自洽: 环拟合残差 rms {q_rms:.2f}px"
@@ -1296,6 +1549,21 @@ class Win(QMainWindow):
                              f"不可信（仅乘积可信），相鉴定也可能受牵连——"
                              f"建议查实验记录填 λ 后重解；或改拍多帧并用"
                              f"批量『🏠 弱衍射·平均帧种子』（仍需 λ）")
+        if res.get("auto_small"):
+            lines.append("小角模式：自动启用（环都挤在画面中心 → 已换大画布）")
+        # 部分弧风险提示（2026-11-19）：束心离画面中心很远时，"中心↔距离"
+        # 可互相补偿（DESY A07 实测 25% 偏差仍全自洽）。此处只作风险提示，
+        # 不是判错——建议用户给近似距离复核。
+        try:
+            _H, _W = self.img.shape
+            _cx, _cy = float(res["cx"]), float(res["cy"])
+            _off = float(np.hypot(_cx - _W / 2.0, _cy - _H / 2.0))
+            if _off > 0.30 * min(_H, _W):
+                lines.append(
+                    f"⚠ 束心离画面中心 {_off:.0f}px（>30%）：部分弧风险——"
+                    f"中心与距离可互相补偿，建议给「近似距离」复核")
+        except Exception:
+            pass
         _k = res.get("harmonic_k")
         if _k:
             lines.append(f"距离已按近似距离吸附到第 {_k} 阶谐波"
@@ -1359,8 +1627,108 @@ class Win(QMainWindow):
             theme.restyle_axes(self.ax2, self.theme_name)
             self.fig2.tight_layout()
             self.cv2.draw_idle()
+
+            # 更新二维置信度空间图
+            if hasattr(self, "ax_conf"):
+                from confidence_map import draw_confidence_map
+                az_cov = res.get("az_coverage", 1.0)
+                draw_confidence_map(self.ax_conf, m=m_val, ps=ps_val, az_cov=az_cov,
+                                    cv_ratio=cv_ratio, theme_name=self.theme_name)
+                self.fig_conf.tight_layout()
+                self.cv_conf.draw_idle()
         except Exception:
             pass
+
+    def run_shared_tilt_dialog(self):
+        """变距扫描共享倾角联合标定对话框"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择多距离标定图像 (>=2 帧)",
+            self.st.value("last_dir", "") or "",
+            IMG_FILTER)
+        if not files or len(files) < 2:
+            if files:
+                QMessageBox.warning(self, "提示", "请至少选择 2 个不同距离的图像帧！")
+            return
+
+        from shared_tilt import joint_solve_multidist_tilt_robust
+        from solver_core import cpts_of_frame, solve_image
+        from torchfai.phases import phase_qs
+
+        px_um = float(self.e_px.text() or 172.0)
+        px_m = px_um * 1e-6
+        lam_val = self._lam_A() or 0.55
+        target_phase = self.c_phase.currentText().strip() or "LaB6"
+        qs = phase_qs(target_phase)
+
+        self.status.setText(f"正在提取 {len(files)} 帧控制点并执行共享倾角联合标定…")
+        QApplication.processEvents()
+
+        cpts = []
+        for p in files:
+            img_data = load_any(p)
+            if img_data is None:
+                continue
+            img_data = auto_offset(img_data)
+            s_res = solve_image(img_data, px_m=px_m, lam=lam_val, want=target_phase)
+            if s_res is None or s_res.get("sol") is None:
+                continue
+            cx_nat = s_res["sol"][0] * s_res["s"]
+            cy_nat = s_res["sol"][1] * s_res["s"]
+            d_nat = s_res["sol"][2] * s_res["s"]
+            cp = cpts_of_frame(img_data, cx_nat, cy_nat, d_nat, px_m, px_m, lam_val, qs)
+            cpts.append(cp)
+
+        res_joint = joint_solve_multidist_tilt_robust(cpts, px_m, px_m, boot=4)
+        if res_joint is None:
+            QMessageBox.critical(self, "拟合失败", "变距共享倾角拟合未收敛，请检查物相与波长输入。")
+            return
+
+        msg = (f"【变距共享倾角联合标定成功】\n"
+               f"有效保留帧: {res_joint['nf_kept']}/{len(files)} 帧\n"
+               f"共享倾角 rot1: {res_joint['rot1']*1e3:+.2f} mrad ({res_joint['rot1_deg']:.3f}°)\n"
+               f"共享倾角 rot2: {res_joint['rot2']*1e3:+.2f} mrad ({res_joint['rot2_deg']:.3f}°)\n"
+               f"拟合总残差 rms: {res_joint['rms']*1e3:.2f} mrad\n\n"
+               f"各帧解析距离与束心：\n")
+        for k, (d_mm, p1, p2) in enumerate(zip(res_joint["dists_mm"], res_joint["p1s"], res_joint["p2s"])):
+            msg += f"  帧 {k+1}: D={d_mm:.2f} mm | 束心=({p2/px_m:.1f}, {p1/px_m:.1f}) px\n"
+
+        QMessageBox.information(self, "变距共享倾角结果", msg)
+        self.txt.append("\n" + "="*40 + "\n" + msg + "="*40)
+
+    def run_az_stack_dialog(self):
+        """多帧部分残弧对齐堆叠合成虚拟全环"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择互补的残弧图像 (>=2 帧)",
+            self.st.value("last_dir", "") or "",
+            IMG_FILTER)
+        if not files or len(files) < 2:
+            if files:
+                QMessageBox.warning(self, "提示", "请至少选择 2 帧具有互补方位的图像！")
+            return
+
+        from azimuthal_stacking import stack_azimuthal_frames
+        imgs = []
+        for p in files:
+            im = load_any(p)
+            if im is not None:
+                imgs.append(auto_offset(im))
+
+        if len(imgs) < 2:
+            QMessageBox.warning(self, "错误", "未能成功载入足够的图像！")
+            return
+
+        composite, rep = stack_azimuthal_frames(imgs, method="max")
+        self.img = composite
+        self.path = f"堆叠合成_{len(imgs)}帧"
+        self.draw_img(composite)
+
+        cov_after = rep['coverage_after']
+        cov_info = f"堆叠前覆盖率: {[f'{c:.0%}' for c in rep['coverage_before']]}\n堆叠后全环覆盖率: {cov_after:.0%}"
+        if rep['is_partial_resolved']:
+            cov_info += " (残弧简并已成功解除！)"
+        QMessageBox.information(self, "残弧堆叠完成", f"已成功将 {len(imgs)} 帧合成虚拟全环！\n\n{cov_info}\n\n已自动加载至主视窗，可直接点击【运行求解】。")
+        self.b_run.setEnabled(True)
+        self.run_solve()
 
     def load_mask(self):
         """载入无效像素掩膜（True=无效）：.npy / 图像文件。"""
@@ -1618,6 +1986,51 @@ class Win(QMainWindow):
             self.txt.append(ln)
         self.txt.append("  " + c["verdict"])
         self.status.setText(f"自检：{c['verdict']}")
+        dev = c.get("dev_max")
+        if ((dev is None or dev > 0.05)
+                and not getattr(self, "_rescue_tried", False)
+                and self.res is not None):
+            self._rescue_tried = True
+            self.txt.append("\n↺ 自检未通过，正在逐个试其余相（自动换相）…")
+            self.b_check.setEnabled(False)
+            self.rescuer = PhaseRescueWorker(
+                self.img, self.res["lam"], float(self.e_px.text() or 172.0),
+                self.mask, self.res["ph"], dev)
+            self.rescuer.done.connect(self.on_rescue_done)
+            self.rescuer.fail.connect(self.on_check_fail)
+            self.rescuer.start()
+
+    def on_rescue_done(self, best):
+        self.b_check.setEnabled(True)
+        if not best:
+            self.txt.append("↺ 没有更合适的相（保持原判；建议给近似距离或补数据）")
+            return
+        score, res, c = best[0], best[1], best[2]
+        cur = self.last_check.get("dev_max") if self.last_check else None
+        # 只接受"自检能通过"(<0.05°)的换相；仅仅"比原来好一点"不算——
+        # 否则会把 AgBh 换成另一个同样错的 Si（2026-11-12 用户实测反馈）。
+        if score[0] > 0.05:
+            self.txt.append(
+                f"↺ 换相未通过自检（最接近 {res['ph']} {score[0]:.3f}°），"
+                f"保持原判 {self.res['ph'] if self.res else '?'}；"
+                f"建议：给近似距离 / 查像素与波长 / 补数据")
+            self.status.setText("自检失败：没有相能通过")
+            return
+        if cur is not None and score[0] >= cur:
+            self.txt.append(f"↺ 换相无改善（最佳 {res['ph']} 仍 {score[0]:.3f}°）")
+            return
+        old_ph = self.res["ph"] if self.res else "?"
+        self.res = res
+        self.last_check = c
+        self.txt.append(f"\n↺ 已自动换相：{old_ph} → {res['ph']}"
+                        f"（自检 {score[0]:.3f}°，{c['n']} 环）")
+        for ln in c["lines"]:
+            self.txt.append(ln)
+        self.txt.append("  " + c["verdict"])
+        self.status.setText(f"自检换相：{res['ph']} · {c['verdict']}")
+        if hasattr(self, "show_img"):
+            self.show_img(res)
+            self.plot_radial(res)
 
     def export_poni(self):
         if self.res is None:

@@ -411,7 +411,7 @@ def _mask_for(shape):
     return _MASK_REG.get(tuple(shape))
 
 
-def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
+def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM, use_pv=False):
     """均值径向谱 + find_peaks + 抛物线内插。返回 [(r_px, 峰高), ...] 升序。
     · 中位数方案已证伪：环像素也是少数，median 把环一起杀。
     · cnt 掩膜已证伪：ceria 真环靠角落 bin 喂票，会被 <15% 中位掩膜杀光
@@ -488,6 +488,23 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM):
             merged[-1] = ((rp0 * h0 + rp * h) / (h0 + h), h0 + h)
         else:
             merged.append((rp, h))
+    if use_pv and merged:
+        try:
+            from peak_fit import refine_radial_peaks_pv
+            r_axis = (np.arange(nb) + 0.5) * bin_px
+            pv_list = refine_radial_peaks_pv(r_axis, prof, merged, half_win=6)
+            if len(pv_list) == len(merged):
+                new_merged = []
+                for (rp, h), pv in zip(merged, pv_list):
+                    r0 = pv.get("r0", rp)
+                    if (pv.get("success") and np.isfinite(r0)
+                            and abs(r0 - rp) <= 1.5 * bin_px):
+                        new_merged.append((float(r0), h))
+                    else:
+                        new_merged.append((rp, h))
+                merged = new_merged
+        except Exception:
+            pass
     return merged, prof, bin_px, good
 
 
@@ -1359,9 +1376,30 @@ def _si_joint(canvas, px_m, kw, dbg):
         return None
 
 
+def auto_offset(img):
+    """去除背景负偏移（2026-11-08）。平板探测器（Varex 等）的 TIFF 常带
+    负值/大 offset（实测 min=-61387），会把径向谱背景抬高、弱环被吞。
+    只对"存在显著负值"的图生效：减掉 1% 分位并截负为 0；uint16 数据
+    （分位>=0）逐位不变，故不影响既有回归。
+    """
+    a = np.asarray(img, dtype=np.float64)
+    v = a[np.isfinite(a)]
+    if v.size == 0:
+        return img
+    lo = float(np.percentile(v, 1.0))
+    hi = float(np.percentile(v, 99.9))
+    vmin = float(v.min())
+    # 触发条件(尺度相关)：最小值深于 p99.9 的 5%。ceria 的 -2 噪声不满足，
+    # Varex 的 -6.1e4(相对 4e5)满足。
+    if vmin >= -0.05 * max(hi, 1e-9):
+        return img                      # 干净数据：不动
+    out = np.clip(a - lo, 0.0, None)
+    return out.astype(np.float32)
+
+
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
-                mask=None):
+                mask=None, canvas_side=None, refine5=False):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1422,6 +1460,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
     kw = dict(cascade=True, auto_center=True, refine_2d=True)
     if solve_kw:
         kw.update(solve_kw)
+    # 注意：不能把 refine5 塞进 kw——kw 会被 ** 传给内部求解函数，多一个键会 TypeError
+    _do_refine5 = bool(refine5)
     lam_in = None if lam is None else _lam_A(lam)
     if q_list is not None and lam_in is None:
         raise ValueError("q_list 锁表模式必须给 lam")
@@ -1457,7 +1497,144 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         m_ = int(res[1][3])
         amb = (("AgBh" if res[0] == "AgSt" else "AgSt")
                if res[0] in ("AgBh", "AgSt") and m_ <= 4 else None)
-        return dict(phase=res[0], sol=res[1], lam=res[2], lam_in=lam_in,
+        sol = res[1]
+        rf5 = None
+        # 可选：五参数精化（默认关闭，kw["refine5"]=True 才跑）
+        if _do_refine5 and lam_in is not None:
+            try:
+                from refine5 import refine_geometry5
+                from torchfai.phases import phase_qs
+                px_nat = px_m
+                # sol[2] 是**画布**像素，画布像素尺寸 = px_c；不能乘原生像素
+                D_m = float(sol[2]) * px_c
+                cx_nat = float(sol[0]) * s
+                cy_nat = float(sol[1]) * s
+                rf5 = refine_geometry5(img, D_m, cx_nat, cy_nat,
+                                       np.asarray(phase_qs(res[0]), float),
+                                       px_nat, float(lam_in))
+                if rf5.get("ok"):
+                    p = rf5["p"]
+                    sol = list(sol)
+                    sol[0] = p[2] / px_nat / s      # 原生 px → 画布 px
+                    sol[1] = p[1] / px_nat / s
+                    sol[2] = p[0] / px_c            # 距离同样要换成画布 px
+                    sol = tuple(sol)
+            except Exception:
+                rf5 = None
+        # Pseudo-Voigt 后精化与少环拆分交叉验证（单次后处理，不影响搜索速度与既有路径）
+        pv_ref = None
+        cv_res = None
+        try:
+            qs_cur = None
+            if q_list is not None:
+                qs_cur = np.asarray(q_list, float)
+            elif res[0] is not None:
+                from torchfai.phases import phase_qs as _pqs
+                qs_cur = np.asarray(_pqs(res[0]), float)
+            if qs_cur is not None and len(qs_cur) > 0:
+                lam_u = float(res[2])
+                arg = qs_cur * lam_u / (4.0 * np.pi)
+                valid_q = (arg > 0.0) & (arg < 0.999)
+                q_valid = qs_cur[valid_q]
+                tth_all = 2.0 * np.arcsin(q_valid * lam_u / (4.0 * np.pi))
+                k_all = np.tan(tth_all)
+                D_c = float(sol[2])
+                r_th_all = D_c * k_all
+
+                def _match_at(cx_try, cy_try):
+                    peaks_f, prof_f, bp_f, _ = ring_radii(canvas, cx_try, cy_try)
+                    pairs = []
+                    for qi, r_th in enumerate(r_th_all):
+                        tol = max(1.5, 0.015 * r_th)
+                        for pi, (rp, _h) in enumerate(peaks_f):
+                            err = abs(rp - r_th)
+                            if err <= tol:
+                                pairs.append((err, pi, qi))
+                    pairs.sort()
+                    used_p, used_q, mlist = set(), set(), []
+                    for err, pi, qi in pairs:
+                        if pi in used_p or qi in used_q:
+                            continue
+                        used_p.add(pi)
+                        used_q.add(qi)
+                        mlist.append((peaks_f[pi][0], float(q_valid[qi]), float(k_all[qi])))
+                    mlist.sort(key=lambda t: t[0])
+                    if len(mlist) >= 3:
+                        r_arr = np.array([t[0] for t in mlist], dtype=float)
+                        k_arr = np.array([t[2] for t in mlist], dtype=float)
+                        rms_r = float(np.sqrt(np.mean((r_arr - D_c * k_arr) ** 2)))
+                    else:
+                        rms_r = 999.0
+                    return mlist, prof_f, bp_f, rms_r
+
+                sol_rms = float(sol[4])
+                matched, prof_f, bp_f, rms_raw = _match_at(float(sol[0]), float(sol[1]))
+                if len(matched) < m_ or rms_raw > max(sol_rms * 1.5, sol_rms + 0.3):
+                    geo_cx = (canvas.shape[1] - 1) / 2.0
+                    geo_cy = (canvas.shape[0] - 1) / 2.0
+                    m_g, p_g, b_g, r_g = _match_at(geo_cx, geo_cy)
+                    if (len(m_g), -r_g) > (len(matched), -rms_raw):
+                        matched, prof_f, bp_f, rms_raw = m_g, p_g, b_g, r_g
+
+                if matched:
+                    from peak_fit import refine_radial_peaks_pv
+                    r_axis_f = (np.arange(len(prof_f)) + 0.5) * bp_f
+                    matched_rps = [t[0] for t in matched]
+                    q_m = np.array([t[1] for t in matched], dtype=float)
+                    k_m = np.array([t[2] for t in matched], dtype=float)
+                    r_raw = np.array(matched_rps, dtype=float)
+                    pv_list = refine_radial_peaks_pv(r_axis_f, prof_f, matched_rps, half_win=6)
+                    r_pv = r_raw.copy()
+                    if len(pv_list) == len(matched_rps):
+                        for idx, pv in enumerate(pv_list):
+                            r0 = pv.get("r0", r_raw[idx])
+                            if (pv.get("success") and np.isfinite(r0)
+                                    and abs(r0 - r_raw[idx]) <= 2.0 * bp_f):
+                                r_pv[idx] = float(r0)
+
+                    if len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok")):
+                        denom = float(np.sum(k_m ** 2))
+                        if denom > 0:
+                            D_pv = float(np.sum(r_pv * k_m) / denom)
+                            rms_pv = float(np.sqrt(np.mean((r_pv - D_pv * k_m) ** 2)))
+                            if (abs(D_pv - D_c) / max(D_c, 1e-6) < 0.01
+                                    and rms_pv < min(rms_raw, sol_rms)):
+                                sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
+                                pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
+                                              n_rings=int(len(r_pv)),
+                                              rms_raw=rms_raw, rms_pv=rms_pv)
+                            else:
+                                pv_ref = dict(applied=False, D_old=D_c, D_new=D_pv,
+                                              n_rings=int(len(r_pv)),
+                                              rms_raw=rms_raw, rms_pv=rms_pv)
+
+                    if m_ <= 5:
+                        from split_half_cv import split_half_verify
+                        cv_res = split_half_verify(r_pv, q_m, lam_u, D_px=float(sol[2]))
+                elif m_ <= 5:
+                    from split_half_cv import split_half_verify
+                    cv_res = split_half_verify([], [], lam_u, D_px=float(sol[2]))
+        except Exception:
+            pass
+
+        conf = None
+        az_cov = 1.0
+        is_part = False
+        try:
+            from confidence_map import evaluate_confidence
+            from azimuthal_stacking import measure_azimuthal_coverage
+            cx_c = float(sol[0])
+            cy_c = float(sol[1])
+            az_res = measure_azimuthal_coverage(canvas, cx_c, cy_c)
+            az_cov = az_res.get("coverage", 1.0)
+            is_part = az_res.get("is_partial_arc", False)
+            cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
+            conf = evaluate_confidence(m=m_, ps=float(res[1][6]),
+                                       az_cov=az_cov, cv_ratio=cv_ratio)
+        except Exception:
+            pass
+
+        return dict(phase=res[0], sol=sol, lam=res[2], lam_in=lam_in,
                     lam_sig=(res[3] if len(res) > 3 else None),
                     canvas=canvas, s=s, px_m=px_c,
                     used_fallback=used_fb, fb_reason=reason,
@@ -1465,14 +1642,28 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     m=m_, ambig=amb,
                     def_ps=dstat[0], def_m=dstat[1], def_rms=dstat[2],
                     lrg_ps=lstat[0], lrg_m=lstat[1], lrg_rms=lstat[2],
-                    gap_masked=gap_n)   # B7:自动 mask 像素数(0=无)
+                    gap_masked=gap_n,   # B7:自动 mask 像素数(0=无)
+                    refine5=rf5,
+                    pv_ref=pv_ref,
+                    cv=cv_res,
+                    confidence=conf,
+                    az_coverage=az_cov,
+                    is_partial_arc=is_part)
 
     def _stat(res):
         return (None, None, None) if res is None else (
             float(res[1][6]), int(res[1][3]), float(res[1][4]))
 
     # ---- 默认档 ----
-    c1, s1, _, _ = canvas_of(img, "default")
+    img = auto_offset(img)          # 负偏移/大 offset 自动扣除
+    # 2026-11-17 修：mask 注册表是模块级、按画布 shape 存——同尺寸的下一张图会
+    # 继承上一张的 mask，导致同一张图在不同上下文里解出不同结果（DESY 盲测
+    # A07 实测 277 vs 369 mm）。每次调用先清空，本函数内只注册自己的 mask。
+    clear_masks()
+    if canvas_side:                 # 小角模式：强制更大画布（保住小半径环）
+        c1, s1, _, _ = to_canvas(img, max_side=int(canvas_side))
+    else:
+        c1, s1, _, _ = canvas_of(img, "default")
     if mask is not None:
         register_mask(mask, s1)
     r1 = _solve_at(c1, px_m * s1, lam_in)
@@ -1938,17 +2129,19 @@ def b_route_mean_seed(imgs, px1, px2, lam, phase, spline=None):
                 rot1=tf["rot1"], rot2=tf["rot2"], n=n, rms5=tf.get("rms5"))
 
 
-def joint_solve_frames(cpts_list, px1, px2, boot=6, seed=3, spline=None):
+def joint_solve_frames(cpts_list, px1, px2, boot=6, seed=3, spline=None,
+                       mode="fixed_dist", shared_center=False):
     """控制点级联合拟合:全局 (dist,rot1,rot2) + 每帧 (poni1,poni2)。
-
-    cpts_list: cpts_of_frame 输出(≥2 帧有效才有意义;≥3 起用)。
-    spline: 探测器畸变文件路径(None=自研前向)。**口径一致性**:
-    cpts 用 fwd=spline 提取时,联合必须同 spline,否则控制点与
-    前向不匹配(系统差 ~0.6mm,见 B13 无 spline Δ−0.588)。
-    boot: bootstrap 抽帧(70%)次数,≥1 时返回 sigma_boot。
-    返回 dict(dist, rot1, rot2, lam 无, p1s/p2s 每帧, rms(rad),
-    npts, nf, sigma_boot|None, Ds_boot) 或 None。
+    支持两种模式：
+      - mode='fixed_dist' (默认): 恒定距离静态/漂移多帧拟合
+      - mode='shared_tilt': 导轨变距扫描多帧拟合 (共享 rot1/rot2, 独立 D_k)
     """
+    if mode == "shared_tilt":
+        from shared_tilt import joint_solve_multidist_tilt
+        return joint_solve_multidist_tilt(cpts_list, px1, px2,
+                                          shared_center=shared_center,
+                                          boot=boot, seed=seed, spline=spline)
+
     from poni_out import make_pyfai_fwd
     from scipy.optimize import least_squares
     live = [c for c in cpts_list if c is not None]
@@ -2015,15 +2208,19 @@ def joint_solve_frames(cpts_list, px1, px2, boot=6, seed=3, spline=None):
     return out
 
 def joint_solve_frames_robust(cpts_list, px1, px2, boot=6, seed=3, spline=None,
-                              k_sigma=3.0, max_iter=2, min_frames=2):
+                              k_sigma=3.0, max_iter=2, min_frames=2,
+                              mode="fixed_dist", shared_center=False):
     """抗差版多帧联合标定：先全体拟合，再按每帧残差剔除离群帧并重拟合。
-
-    动机（CLS 实证 2026-11-23）：联合是"如实汇总"，一个落错盆的帧
-    （realgar 309 mm / orpiment 192 mm）会把全局距离拖偏 10 mm；
-    剔除后剩下的一致帧仍能给出稳定解。
-    返回 joint_solve_frames 的 dict，另加 dropped（被剔除的帧序号）
-    与 nf_kept（保留帧数）。
+    支持 mode='fixed_dist' 与 mode='shared_tilt'。
     """
+    if mode == "shared_tilt":
+        from shared_tilt import joint_solve_multidist_tilt_robust
+        return joint_solve_multidist_tilt_robust(cpts_list, px1, px2,
+                                                 shared_center=shared_center,
+                                                 boot=boot, seed=seed, spline=spline,
+                                                 k_sigma=k_sigma, max_iter=max_iter,
+                                                 min_frames=min_frames)
+
     from poni_out import make_pyfai_fwd
 
     live_idx = [i for i, c in enumerate(cpts_list) if c is not None]
