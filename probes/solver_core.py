@@ -411,7 +411,17 @@ def _mask_for(shape):
     return _MASK_REG.get(tuple(shape))
 
 
-def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM, use_pv=False):
+_SPOT_CLIP = 0.0  # 方位角上尾 σ 截断（默认关闭：alumina 52 帧实测全局 4σ 会误伤粗晶织构环，平均|Δ| 9.0→20.1mm；单晶亮斑/坏点图可显式传 spot_clip=4.0 或调 set_spot_clip(4.0) 启用）
+
+
+def set_spot_clip(k=0.0):
+    """设置 ring_radii 方位角上尾亮斑截断阈值（0=关闭，建议单晶斑点图用 4.0）。"""
+    global _SPOT_CLIP
+    _SPOT_CLIP = float(k) if k else 0.0
+
+
+def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
+               use_pv=False, spot_clip=None):
     """均值径向谱 + find_peaks + 抛物线内插。返回 [(r_px, 峰高), ...] 升序。
     · 中位数方案已证伪：环像素也是少数，median 把环一起杀。
     · cnt 掩膜已证伪：ceria 真环靠角落 bin 喂票，会被 <15% 中位掩膜杀光
@@ -426,14 +436,28 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM, use_pv=False):
     rmax = float(r.max())
     idx = (r / rmax * (nb - 1)).astype(np.int32).ravel()
     _m = _mask_for(canvas.shape)
-    if _m is not None:
-        valid = ~_m.ravel()
-        v = np.where(valid, canvas.astype(np.float64).ravel(), 0.0)
+    v_raw = canvas.astype(np.float64).ravel()
+    valid = (~_m.ravel()) if _m is not None else None
+    if valid is not None:
+        v = np.where(valid, v_raw, 0.0)
         cnt = np.bincount(idx, weights=valid.astype(np.float64), minlength=nb)
     else:
-        v = canvas.astype(np.float64).ravel()
+        v = v_raw
         cnt = np.bincount(idx, minlength=nb)
     prof = np.bincount(idx, weights=v, minlength=nb) / np.maximum(cnt, 1)
+    _sc = _SPOT_CLIP if spot_clip is None else float(spot_clip)
+    if _sc and _sc > 0:
+        diff = v_raw - prof[idx]
+        if valid is not None:
+            diff = np.where(valid, diff, 0.0)
+        var1 = np.bincount(idx, weights=diff * diff, minlength=nb) / np.maximum(cnt, 1)
+        std1 = np.sqrt(np.maximum(var1, 0.0))
+        keep = (cnt[idx] < 16) | (v_raw <= prof[idx] + _sc * std1[idx])
+        if valid is not None:
+            keep = valid & keep
+        cnt2 = np.bincount(idx, weights=keep.astype(np.float64), minlength=nb)
+        prof = np.bincount(idx, weights=np.where(keep, v_raw, 0.0), minlength=nb) / np.maximum(cnt2, 1)
+        cnt = cnt2
     good = cnt > 0.15 * np.median(cnt[cnt > 0])
     bg = float(np.median(prof[cnt > 0]))
     bin_px = rmax / nb
@@ -735,7 +759,7 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
             if all(abs(np.log(Dg / s0_)) > np.log(1.06) for s0_ in seeds):
                 seeds.append(float(Dg))
 
-    def pair_up(cx, cy, D, frac):
+    def pair_up(peaks_cur, cx, cy, D, frac):
         # 双射配对（2026-11-01 zoo 修复）：全局按距离贪心，一条 q 用一个
         # 峰、一个峰只配一条 q。旧版每 q 独立取最近峰 → 密线相（Quartz
         # 15 线）在少量真峰上"多对一"复用刷高 m/覆盖分（Eiger9M 伪 m=14
@@ -745,7 +769,7 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
         for qi, q in enumerate(qs):
             rm = _r_model(np.array([q]), lam, D)[0]
             tol = max(1.5, frac * rm)
-            for pi, (rp, h) in enumerate(peaks_rp):
+            for pi, (rp, h) in enumerate(peaks_cur):
                 if abs(rp - rm) < tol:
                     cand.append((abs(rp - rm), qi, pi, rp, h))
         cand.sort()
@@ -763,7 +787,7 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
         cx, cy, D = cx_in, cy_in, D_star
         best = None
         for frac in (0.03, 0.02, 0.01):
-            pairs = pair_up(cx, cy, D, frac)
+            pairs = pair_up(peaks_in, cx, cy, D, frac)
             if len(pairs) >= 3:
                 qv = np.array([q for q, _, _, _ in pairs])
                 rv = np.array([rp for _, rp, _, _ in pairs])
@@ -793,6 +817,7 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
             if dbg:
                 print(f"    [dbg] 种子 D*={D_star:.1f} 配对<3")
             continue
+        prof_use = prof_ctx
         # —— 环谐波定心迭代（≤2 轮）：定心 → 重提取峰 → 重解 ——
         if canvas is not None and recenter and r[3] >= 4:
             cx, cy, cur = cx0, cy0, r
@@ -806,6 +831,8 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
                 cur2 = refine_from(peaks2, cx2, cy2, cur[2])
                 if cur2 is not None and (cur2[3], -cur2[4]) >= (cur[3], -cur[4]):
                     cx, cy, cur = cx2, cy2, cur2
+                    if prof_ctx is not None:
+                        prof_use = (prof2, bp2, g2)
                 else:
                     break
             r = (cx, cy) + tuple(cur[2:])
@@ -819,9 +846,9 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
         rm_c = _r_model(qs, lam, D)
         visible = int(((rm_c > MIN_R) & (rm_c < rmax_est)).sum())
         cov_score = m - 0.5 * (visible - m)
-        pscore = (profile_score(prof_ctx[0], prof_ctx[1], prof_ctx[2],
+        pscore = (profile_score(prof_use[0], prof_use[1], prof_use[2],
                                 qs, I_rel, lam, D, rmax_use=rmax_est)
-                  if prof_ctx is not None else -1.0)
+                  if prof_use is not None else -1.0)
         if dbg:
             print(f"    [dbg] 种子 D*={Ds:.1f} 配 {m}/{visible} 环 "
                   f"rms={rms:.2f}/{rms_lim:.2f}px Icorr={icorr:+.2f} "
