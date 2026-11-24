@@ -21,12 +21,14 @@ def rotation_matrix(rot1, rot2, rot3=0.0):
     return r3 @ r2 @ r1
 
 
-def tth_from_pixel(x, y, dist, poni1, poni2, rot1, rot2, px):
-    """像素坐标 (x=列, y=行) → 2θ（弧度）。支持标量或数组。"""
+def tth_from_pixel(x, y, dist, poni1, poni2, rot1, rot2, px, px2=None):
+    """像素坐标 (x=列, y=行) → 2θ（弧度）。支持标量或数组及非等方像素 px2。"""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
-    p1 = (y + 0.5) * px - poni1
-    p2 = (x + 0.5) * px - poni2
+    px1 = float(px)
+    px2_ = px1 if px2 is None else float(px2)
+    p1 = (y + 0.5) * px1 - poni1
+    p2 = (x + 0.5) * px2_ - poni2
     p3 = np.full_like(p1, dist)
     rot = rotation_matrix(rot1, rot2)
     t1 = rot[0, 0] * p1 + rot[0, 1] * p2 + rot[0, 2] * p3
@@ -35,7 +37,7 @@ def tth_from_pixel(x, y, dist, poni1, poni2, rot1, rot2, px):
     return np.arctan2(np.hypot(t1, t2), t3)
 
 
-def fit_geometry(xy, tth_obs, p0, px, weights=None, bounds=None):
+def fit_geometry(xy, tth_obs, p0, px, weights=None, bounds=None, px2=None):
     """最小二乘拟合 (dist, poni1, poni2, rot1, rot2)。
 
     xy: (N, 2) 像素坐标（x=列, y=行）
@@ -50,7 +52,7 @@ def fit_geometry(xy, tth_obs, p0, px, weights=None, bounds=None):
 
     def resid(p):
         d, q1, q2, r1, r2 = p
-        return (tth_from_pixel(x, y, d, q1, q2, r1, r2, px) - tth_obs) * w
+        return (tth_from_pixel(x, y, d, q1, q2, r1, r2, px, px2=px2) - tth_obs) * w
 
     if bounds is None:
         # 物理约束：距离正、倾角小于 5°

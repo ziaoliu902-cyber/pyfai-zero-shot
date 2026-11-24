@@ -894,6 +894,28 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
     if ps_max >= 0.40:
         cands = [c for c in cands if c[7] >= ps_max - 0.25]
     cands.sort(reverse=True)
+    if (canvas is not None and len(cands) >= 2 and cands[0][7] < 0.25
+            and cands[0][0] - cands[1][0] <= 0.5):
+        try:
+            from weak_ring import azimuthal_consistency_score
+            tied = [c for c in cands[:4] if c[0] >= cands[0][0] - 0.5]
+            if len(tied) >= 2:
+                az0 = azimuthal_consistency_score(
+                    canvas, tied[0][3], tied[0][4], qs, lam, tied[0][5])["score"]
+                best_i, best_az = 0, az0
+                rms0 = -tied[0][2]
+                for idx_t in range(1, len(tied)):
+                    ct = tied[idx_t]
+                    if -ct[2] > rms0 + 0.8:
+                        continue
+                    az_t = azimuthal_consistency_score(
+                        canvas, ct[3], ct[4], qs, lam, ct[5])["score"]
+                    if az_t > az0 + 0.08 and az_t > best_az:
+                        best_i, best_az = idx_t, az_t
+                if best_i > 0:
+                    cands[0], cands[best_i] = cands[best_i], cands[0]
+        except Exception:
+            pass
     cs, m, neg_rms, cx, cy, D, icorr, ps = cands[0]
     return (cx, cy, D, m, -neg_rms, icorr, ps)
 
@@ -1176,25 +1198,68 @@ def refine_lambda_d(canvas, cx, cy, D_px, lam, q_list, dbg=False,
     return lam_h, D_h, n, rms, sig_rel
 
 
+def _taubin_circle(x, y, w=None):
+    """加权 Taubin 无偏圆拟合（消除 Kasa 在部分弧与噪声下的半径向内收缩偏置）。
+
+    返回 (cx, cy, r) 或 None（退化或奇异时由调用方回退 Kasa）。
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    n = x.size
+    if n < 3:
+        return None
+    if w is None:
+        wn = np.full(n, 1.0 / n, dtype=np.float64)
+    else:
+        wa = np.maximum(np.asarray(w, dtype=np.float64), 0.0)
+        sw = float(wa.sum())
+        if sw <= 0.0:
+            return None
+        wn = wa / sw
+    xm = float(np.sum(wn * x))
+    ym = float(np.sum(wn * y))
+    dx = x - xm
+    dy = y - ym
+    z = dx * dx + dy * dy
+    z_bar = float(np.sum(wn * z))
+    if z_bar <= 1e-12:
+        return None
+    zc = z - z_bar
+    S = np.array([
+        [float(np.sum(wn * zc * zc)), float(np.sum(wn * zc * dx)), float(np.sum(wn * zc * dy))],
+        [0.0,                         float(np.sum(wn * dx * dx)), float(np.sum(wn * dx * dy))],
+        [0.0,                         0.0,                         float(np.sum(wn * dy * dy))],
+    ], dtype=np.float64)
+    S[1, 0] = S[0, 1]
+    S[2, 0] = S[0, 2]
+    S[2, 1] = S[1, 2]
+    ds = np.array([0.5 / np.sqrt(z_bar), 1.0, 1.0], dtype=np.float64)
+    Q = S * (ds[:, None] * ds[None, :])
+    try:
+        _, evecs = np.linalg.eigh(Q)
+    except np.linalg.LinAlgError:
+        return None
+    u = evecs[:, 0] * ds
+    A, B, C = float(u[0]), float(u[1]), float(u[2])
+    if abs(A) <= 1e-12:
+        return None
+    cx_r = -B / (2.0 * A)
+    cy_r = -C / (2.0 * A)
+    r2 = cx_r * cx_r + cy_r * cy_r + z_bar
+    if r2 <= 0.0 or not np.isfinite(r2):
+        return None
+    return float(xm + cx_r), float(ym + cy_r), float(np.sqrt(r2))
+
+
 def refine_geometry_2d(canvas, cx, cy, D_px, q_list, lam, n_iter=3,
-                       half=3.0, trim=2.5, dbg=False):
-    """T3（2026-11-01 深夜）：相感知 2D 逐环 Kasa 圆拟合精化中心与 D。
+                       half=3.0, trim=2.5, dbg=False, px_ratio=1.0):
+    """T3（2026-11-01 深夜）：相感知 2D 逐环 Taubin 无偏圆拟合精化中心与 D。
 
-    与 kasa_center 的分工：那边相无关、用径向谱最强 6 环做**定心**；
-    这里用 1D 解的 (相, D, λ) 预测每条环半径 r_i=D·tan(2θ(q_i,λ))，
-    逐环带内亮像元（35/98 百分位门 0.35）Kasa 圆拟合（2.5σ 剪枝×2），
-    环像元数加权聚合中心（0.5 阻尼）+ 环半径对 D 的加权 LSQ
-    （w∝1/r²，相对精度同权），迭代 n_iter 轮——**既精中心也精 D**，
-    且不受 1D 径向谱对 1-2px 中心扰动敏感的坑（mar3450 实证）。
-
-    原型战绩（probes/_mar_2d.py，mar3450 原生 3450²、LaB6 12 环）：
-    GT 初始 0.18px、5px 扰动 1.1px、逐环 D_i 一致 ±0.6mm。
-    门控由调用方负责（ps>0.4 且 m≥4 才启用——初值错会收敛到错环）。
-    返回 (cx2, cy2, D_px2, n_rings) 或 None（可拟合环 <3 / 中心跳
-    >30 画布px，视为收敛到错环族）。
+    px_ratio = px2 / px1（默认 1.0）；存在各向异性像素时把横向缩放到与纵向等方。
     """
     H, W = canvas.shape
     qs = np.asarray(q_list, float)
+    pr = float(px_ratio) if px_ratio else 1.0
     c0 = (float(cx), float(cy))
     c, D = c0, float(D_px)
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float64)
@@ -1202,13 +1267,13 @@ def refine_geometry_2d(canvas, cx, cy, D_px, q_list, lam, n_iter=3,
     for _ in range(n_iter):
         radii = _r_model(qs, lam, D)
         fits = []
-        r_edge = min(c[0], c[1], W - 1 - c[0], H - 1 - c[1])
+        r_edge = min(c[0] * pr, c[1], (W - 1 - c[0]) * pr, H - 1 - c[1])
         for qi, r0 in enumerate(radii):
             # 边缘门（冒烟实证：部分弧把圆心拉偏，Eiger4M 4.99px 的主因）：
             # 只收完整环，0.9 留倾斜/畸变余量（kasa_center 用 0.95）。
             if r0 < MIN_R or r0 > 0.9 * r_edge:
                 continue
-            band = np.abs(np.hypot(xx - c[0], yy - c[1]) - r0) < half
+            band = np.abs(np.hypot((xx - c[0]) * pr, yy - c[1]) - r0) < half
             _m2 = _mask_for(band.shape)
             if _m2 is not None:
                 band = band & ~_m2
@@ -1222,28 +1287,31 @@ def refine_geometry_2d(canvas, cx, cy, D_px, q_list, lam, n_iter=3,
                 continue
             keep = v > base + 0.35 * (peak - base)
             px_, py_ = (ix[keep].astype(float), iy[keep].astype(float))
-            # 强度加权（冒烟实证：织构/环上亮度不对称把等权 Kasa 圆心
-            # 拉向亮侧；w∝v−base，行乘 √w 进法方程）。
+            # 强度加权（冒烟实证：织构/环上亮度不对称把等权圆心拉向亮侧）
             wt = np.clip(v[keep] - base, 1e-9, None)
             if px_.size < 150:
                 continue
             cxk = cyk = rk = sig = None
             for _ in range(2):
-                sw = np.sqrt(wt)
-                A = np.stack([px_, py_, np.ones_like(px_)], axis=1) \
-                    * sw[:, None]
-                b = (px_ ** 2 + py_ ** 2) * sw
-                try:
-                    sol_, *_ = np.linalg.lstsq(A, b, rcond=None)
-                except np.linalg.LinAlgError:
-                    break
-                a0, b0, cc = sol_
-                cxk, cyk = a0 / 2.0, b0 / 2.0
-                rk2 = cc + (a0 * a0 + b0 * b0) / 4.0
-                if rk2 <= 0:
-                    break
-                rk = float(np.sqrt(rk2))
-                res = np.abs(np.hypot(px_ - cxk, py_ - cyk) - rk)
+                tb = _taubin_circle(px_ * pr, py_, wt)
+                if tb is not None:
+                    cxk, cyk, rk = tb[0] / pr, tb[1], tb[2]
+                else:
+                    sw = np.sqrt(wt)
+                    px_s = px_ * pr
+                    A = np.stack([px_s, py_, np.ones_like(px_s)], axis=1) * sw[:, None]
+                    b = (px_s ** 2 + py_ ** 2) * sw
+                    try:
+                        sol_, *_ = np.linalg.lstsq(A, b, rcond=None)
+                    except np.linalg.LinAlgError:
+                        break
+                    a0, b0, cc = sol_
+                    cxk, cyk = a0 / 2.0 / pr, b0 / 2.0
+                    rk2 = cc + (a0 * a0 + b0 * b0) / 4.0
+                    if rk2 <= 0:
+                        break
+                    rk = float(np.sqrt(rk2))
+                res = np.abs(np.hypot((px_ - cxk) * pr, py_ - cyk) - rk)
                 sig = float(res.std())
                 m = res < trim * max(sig, 0.5)
                 if m.sum() < 150 or m.all():
@@ -1251,7 +1319,7 @@ def refine_geometry_2d(canvas, cx, cy, D_px, q_list, lam, n_iter=3,
                 px_, py_, wt = px_[m], py_[m], wt[m]
             if cxk is None or rk is None:
                 continue
-            res = np.abs(np.hypot(px_ - cxk, py_ - cyk) - rk)
+            res = np.abs(np.hypot((px_ - cxk) * pr, py_ - cyk) - rk)
             fits.append((cxk, cyk, rk, float(px_.size),
                          float(res.std()), qi))
         if len(fits) < 3:
@@ -1471,7 +1539,8 @@ def auto_offset(img):
 
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
-                mask=None, canvas_side=None, refine5=False, prior=None):
+                mask=None, canvas_side=None, refine5=False, prior=None,
+                px2_m=None):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1570,29 +1639,53 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         amb = (("AgBh" if res[0] == "AgSt" else "AgSt")
                if res[0] in ("AgBh", "AgSt") and m_ <= 4 else None)
         sol = res[1]
+        px1_nat = float(px_m)
+        px2_nat = px1_nat if px2_m is None else float(px2_m)
         rf5 = None
-        # 可选：五参数精化（默认关闭，kw["refine5"]=True 才跑）
+        # 可选：五参数精化（默认关闭，refine5=True 才跑）
         if _do_refine5 and lam_in is not None:
             try:
                 from refine5 import refine_geometry5
                 from torchfai.phases import phase_qs
-                px_nat = px_m
                 # sol[2] 是**画布**像素，画布像素尺寸 = px_c；不能乘原生像素
                 D_m = float(sol[2]) * px_c
                 cx_nat = float(sol[0]) * s
                 cy_nat = float(sol[1]) * s
                 rf5 = refine_geometry5(img, D_m, cx_nat, cy_nat,
                                        np.asarray(phase_qs(res[0]), float),
-                                       px_nat, float(lam_in))
+                                       px1_nat, float(lam_in), px2=px2_nat)
                 if rf5.get("ok"):
                     p = rf5["p"]
                     sol = list(sol)
-                    sol[0] = p[2] / px_nat / s      # 原生 px → 画布 px
-                    sol[1] = p[1] / px_nat / s
+                    sol[0] = p[2] / px2_nat / s      # 原生 px → 画布 px
+                    sol[1] = p[1] / px1_nat / s
                     sol[2] = p[0] / px_c            # 距离同样要换成画布 px
                     sol = tuple(sol)
             except Exception:
                 rf5 = None
+        # 原生分辨率 2D Taubin 精化（按严格安全门控启用）
+        native_2d_ok = False
+        if (kw.get("refine_2d", True) and res[0] is not None
+                and float(res[1][6]) > 0.4 and m_ >= 4 and s > 1
+                and img.size <= 16_000_000 and not (rf5 and rf5.get("ok"))):
+            try:
+                from torchfai.phases import phase_qs as _pqs2
+                if mask is not None:
+                    register_mask(mask, 1)
+                qs_2d = np.asarray(_pqs2(res[0]), float)
+                out_n = refine_geometry_2d(
+                    img, float(sol[0]) * s, float(sol[1]) * s, float(sol[2]) * s,
+                    qs_2d, float(res[2]), n_iter=2, px_ratio=(px2_nat / px1_nat))
+                if out_n is not None and out_n[3] >= 4:
+                    shift_nat = float(np.hypot(out_n[0] - float(sol[0]) * s,
+                                               out_n[1] - float(sol[1]) * s))
+                    d_new_c = out_n[2] / s
+                    if (shift_nat < 15.0
+                            and abs(d_new_c - float(sol[2])) / max(float(sol[2]), 1e-6) < 0.025):
+                        sol = tuple([out_n[0] / s, out_n[1] / s, d_new_c, *sol[3:]])
+                        native_2d_ok = True
+            except Exception:
+                native_2d_ok = False
         # Pseudo-Voigt 后精化与少环拆分交叉验证（单次后处理，不影响搜索速度与既有路径）
         pv_ref = None
         cv_res = None
@@ -1668,7 +1761,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                     and abs(r0 - r_raw[idx]) <= 2.0 * bp_f):
                                 r_pv[idx] = float(r0)
 
-                    if len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok")):
+                    if (len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok"))
+                            and not native_2d_ok):
                         denom = float(np.sum(k_m ** 2))
                         if denom > 0:
                             D_pv = float(np.sum(r_pv * k_m) / denom)
@@ -1732,6 +1826,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     lrg_ps=lstat[0], lrg_m=lstat[1], lrg_rms=lstat[2],
                     gap_masked=gap_n,   # B7:自动 mask 像素数(0=无)
                     refine5=rf5,
+                    native_2d=native_2d_ok,
                     pv_ref=pv_ref,
                     cv=cv_res,
                     mf_score=mf_score,

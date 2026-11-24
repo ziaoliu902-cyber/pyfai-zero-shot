@@ -173,3 +173,72 @@ def intensity_likelihood_score(peaks_rp, qs, I_rel, lam, D_px,
         n_missing_strong=int(n_missing_strong),
         icorr_log=float(icorr_log),
     )
+
+
+def azimuthal_consistency_score(canvas, cx, cy, qs, lam, D_px,
+                                n_sec=24, half_px=3.0, min_r=25.0):
+    """计算候选几何解在各独立方位扇区上的一致性得分。
+
+    物理依据：真实多晶衍射环（即使存在一定织构）会在多个独立方位角扇区稳定高于
+    局部背景；而单个强布拉格亮斑或偶发谐波伪解往往只在极少方位扇区碰撞出峰。
+
+    返回：
+      dict(score=float, n_rings=int)
+    """
+    img = np.asarray(canvas, dtype=np.float64)
+    if img.ndim != 2 or D_px <= 0:
+        return dict(score=0.0, n_rings=0)
+
+    H, W = img.shape
+    qs = np.asarray(qs, dtype=np.float64)
+    lam_A = float(lam) * 1e10 if float(lam) < 1e-6 else float(lam)
+    arg = qs * lam_A / (4.0 * np.pi)
+    valid_q = (arg > 0.0) & (arg < 0.999)
+    if not valid_q.any():
+        return dict(score=0.0, n_rings=0)
+
+    tt = 2.0 * np.arcsin(arg[valid_q])
+    r_th_all = float(D_px) * np.tan(tt)
+
+    yy, xx = np.mgrid[0:H, 0:W]
+    dx = xx - float(cx)
+    dy = yy - float(cy)
+    r = np.hypot(dy, dx)
+    r_max = float(r.max())
+    r_in = r_th_all[(r_th_all >= float(min_r)) & (r_th_all <= 0.95 * r_max)]
+    if r_in.size == 0:
+        return dict(score=0.0, n_rings=0)
+
+    n_sec = int(max(4, n_sec))
+    sec = ((np.arctan2(dy, dx) + np.pi) / (2.0 * np.pi) * n_sec).astype(np.int32) % n_sec
+
+    fracs = []
+    hp = float(half_px)
+    for ri in r_in:
+        dr = np.abs(r - float(ri))
+        on_m = dr < hp
+        bg_m = (dr >= hp + 2.0) & (dr <= hp + 7.0)
+        if not on_m.any() or not bg_m.any():
+            continue
+
+        on_s = sec[on_m]
+        on_v = img[on_m]
+        on_cnt = np.bincount(on_s, minlength=n_sec)
+        on_mean = np.bincount(on_s, weights=on_v, minlength=n_sec) / np.maximum(on_cnt, 1)
+
+        bg_s = sec[bg_m]
+        bg_v = img[bg_m]
+        bg_cnt = np.bincount(bg_s, minlength=n_sec)
+        bg_mean = np.bincount(bg_s, weights=bg_v, minlength=n_sec) / np.maximum(bg_cnt, 1)
+        bg_sq = np.bincount(bg_s, weights=bg_v * bg_v, minlength=n_sec) / np.maximum(bg_cnt, 1)
+        bg_std = np.sqrt(np.maximum(bg_sq - bg_mean * bg_mean, 0.0))
+
+        valid_sec = (on_cnt >= 3) & (bg_cnt >= 6)
+        if valid_sec.any():
+            hit = valid_sec & (on_mean > bg_mean + 1.5 * bg_std)
+            fracs.append(float(hit.sum()) / float(valid_sec.sum()))
+
+    return dict(
+        score=float(np.mean(fracs)) if fracs else 0.0,
+        n_rings=int(len(fracs)),
+    )

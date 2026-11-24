@@ -26,41 +26,45 @@ def _profile_peaks(tth, vals, nb=3000):
 
 
 def refine_geometry5(img, D, cx, cy, qs, px, lam, n_iter=3, subsample=3,
-                     max_shift_px=40.0, min_gain=0.15, tol=0.01):
+                     max_shift_px=40.0, min_gain=0.15, tol=0.01, px2=None):
     """返回 dict(p, gain, shift_px, cond, ok, before, after)。
 
     D: 米；cx, cy: 像素（图像坐标，x=列, y=行）；qs: 该相位的 q 列表（Å⁻¹）
+    px: 纵轴(Y/行)像素尺寸（米）；px2: 可选横轴(X/列)像素尺寸（默认=px）
     """
+    px1 = float(px)
+    px2_ = px1 if px2 is None else float(px2)
     H, W = img.shape
     ys, xs = np.mgrid[0:H:subsample, 0:W:subsample]
     vals = img[::subsample, ::subsample]
     tth_theo = 2 * np.arcsin(np.clip(lam * qs / (4 * np.pi), 0, 0.999))
 
-    p = np.array([D, cy * px, cx * px, 0.0, 0.0], float)
+    p = np.array([D, cy * px1, cx * px2_, 0.0, 0.0], float)
     p_start = p.copy()
 
     good = False
     cond = np.nan
     n_rings_used = 0
     for _ in range(n_iter):
-        tth = tth_from_pixel(xs, ys, *p, px)
+        tth = tth_from_pixel(xs, ys, *p, px1, px2=px2_)
         d = np.abs(tth[..., None] - tth_theo[None, None, :])
         near = d.argmin(axis=2)
         keep = d.min(axis=2) < tol
-        w = np.clip(vals, 0, np.percentile(vals, 99.5)) * keep
+        v_sub = np.maximum(vals - float(np.percentile(vals, 25)), 0.0)
+        w = np.clip(v_sub, 0.0, np.percentile(v_sub, 99.5)) * keep
         mx = w.max()
         if mx <= 0:
             return dict(p=p_start, gain=0.0, shift_px=0.0, cond=np.nan, ok=False,
-                    before=float('nan'), after=float('nan'))
+                        before=float('nan'), after=float('nan'))
         w = w / mx
         m = w > 1e-3
         if m.sum() < 500:
             return dict(p=p_start, gain=0.0, shift_px=0.0, cond=np.nan, ok=False,
-                    before=float('nan'), after=float('nan'))
+                        before=float('nan'), after=float('nan'))
         xy = np.column_stack([xs[m], ys[m]])
         obs = tth_theo[near[m]]
         n_rings_used = int(np.unique(obs).size)
-        res = fit_geometry(xy, obs, p, px, weights=w[m])
+        res = fit_geometry(xy, obs, p, px1, weights=w[m], px2=px2_)
         p = res["p"]
         cond = res["cond"]
         good = True
@@ -69,9 +73,9 @@ def refine_geometry5(img, D, cx, cy, qs, px, lam, n_iter=3, subsample=3,
         return dict(p=p_start, gain=0.0, shift_px=0.0, cond=np.nan, ok=False,
                     before=float('nan'), after=float('nan'))
 
-    before = _ring_fwhm(img, p_start, px, qs, lam)
-    after = _ring_fwhm(img, p, px, qs, lam)
-    shift = float(np.hypot(p[1] - p_start[1], p[2] - p_start[2]) / px)
+    before = _ring_fwhm(img, p_start, px1, qs, lam, px2=px2_)
+    after = _ring_fwhm(img, p, px1, qs, lam, px2=px2_)
+    shift = float(np.hypot((p[1] - p_start[1]) / px1, (p[2] - p_start[2]) / px2_))
     drel = abs(p[0] / p_start[0] - 1.0)
     gain = 0.0 if not np.isfinite(before) or before <= 0 else 1 - after / before
 
@@ -83,9 +87,9 @@ def refine_geometry5(img, D, cx, cy, qs, px, lam, n_iter=3, subsample=3,
     if np.isfinite(after):
         for dx, dy in ((probe, 0), (-probe, 0), (0, probe), (0, -probe)):
             q = p.copy()
-            q[2] += dx * px
-            q[1] += dy * px
-            f = _ring_fwhm(img, q, px, qs, lam)
+            q[2] += dx * px2_
+            q[1] += dy * px1
+            f = _ring_fwhm(img, q, px1, qs, lam, px2=px2_)
             if np.isfinite(f):
                 tested += 1
                 if f > after:
@@ -104,39 +108,34 @@ def refine_geometry5(img, D, cx, cy, qs, px, lam, n_iter=3, subsample=3,
                 local_opt=local_opt, worse=worse, tested=tested)
 
 
-def _ring_fwhm(img, p, px, qs, lam, npt=3000):
-    """用给定几何做一次 1D 积分，返回前几条环的峰宽中位数（q 单位）。
+def _ring_fwhm(img, p, px, qs, lam, npt=2048, px2=None):
+    """纯 numpy 向量化 1D q 空间积分，返回前几条环的峰宽中位数（q 单位）。"""
+    H, W = img.shape
+    sub = 2 if max(H, W) > 1500 else 1
+    ys, xs = np.mgrid[0:H:sub, 0:W:sub]
+    vals = np.asarray(img[::sub, ::sub], dtype=np.float64)
+    tth = tth_from_pixel(xs, ys, *p, px, px2=px2)
+    lam_A = float(lam) * 1e10 if float(lam) < 1e-6 else float(lam)
+    q_pix = 4.0 * np.pi * np.sin(0.5 * tth) / lam_A
 
-    必须走"临时 poni → pyFAI.load"，否则 detector.shape 为空，
-    splitBBox 会以 'Solid angle array size' 断言失败（踩过）。
-    """
-    import os
-    import tempfile
-
-    import pyFAI
-
-    txt = (f"poni_version: 2.1\nDetector: Detector\n"
-           f"Detector_config: {{\"pixel1\": {px}, \"pixel2\": {px}}}\n"
-           f"Distance: {p[0]}\nPoni1: {p[1]}\nPoni2: {p[2]}\n"
-           f"Rot1: {p[3]}\nRot2: {p[4]}\nRot3: 0.0\n"
-           f"Wavelength: {lam * 1e-10}\n")
-    fd, tmp = tempfile.mkstemp(suffix=".poni")
-    os.close(fd)
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(txt)
-    try:
-        ai = pyFAI.load(tmp)
-        q, I = ai.integrate1d(img, npt, unit="q_A^-1", method="bbox,splitpixel")
-    except Exception:
+    valid = np.isfinite(q_pix) & np.isfinite(vals)
+    if not valid.any():
         return float("nan")
-    finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+    qv = q_pix[valid].ravel()
+    vv = vals[valid].ravel()
+    q_min, q_max = float(qv.min()), float(qv.max())
+    if not np.isfinite(q_min) or q_max <= q_min:
+        return float("nan")
+
+    edges = np.linspace(q_min, q_max, npt + 1)
+    idx = np.clip(np.digitize(qv, edges) - 1, 0, npt - 1)
+    cnt = np.bincount(idx, minlength=npt)
+    I = np.bincount(idx, weights=vv, minlength=npt) / np.maximum(cnt, 1)
+    q = 0.5 * (edges[1:] + edges[:-1])
+
     out = []
     for q0 in qs[:6]:
-        sel = (q > q0 * 0.9) & (q < q0 * 1.1)
+        sel = (q > q0 * 0.9) & (q < q0 * 1.1) & (cnt > 0)
         if sel.sum() < 8:
             continue
         qs_, Is = q[sel], I[sel]
