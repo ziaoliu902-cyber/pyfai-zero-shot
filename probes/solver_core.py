@@ -990,7 +990,9 @@ def solve_auto(canvas, lam, px_m, phases=None, dbg=False,
         # Eiger4M：geo ps+0.444/rms0.31 vs 投票 ps+0.360/rms3.05 → 挡住。
         if alt is not None and (res is None
                                 or (alt[1][6] > res[1][6]
-                                    and alt[1][4] < res[1][4])):
+                                    and alt[1][4] < res[1][4]
+                                    and (alt[1][3] >= 4 or res[1][3] < 4
+                                         or alt[1][6] > res[1][6] + 0.15))):
             res = alt
     if refine_2d and res is not None and res[1][6] > 0.4 and res[1][3] >= 4:
         # T3：2D 逐环 Kasa 精化（门控 ps>0.4 且 m≥4——初值错会收敛到
@@ -1032,7 +1034,17 @@ def _solve_auto_at(canvas, lam, px_m, cx0, cy0, phases, dbg, D_ref_m,
         if s is None:
             continue
         rm = _r_model(np.asarray(q), lamA, s[2])
-        visible = int(((rm > MIN_R) & (rm < rmax)).sum())
+        if abs(s[0] - cx0) + abs(s[1] - cy0) > 10.0:
+            H_c, W_c = canvas.shape
+            rmax_s = float(max(
+                np.hypot(s[0], s[1]),
+                np.hypot(W_c - 1 - s[0], s[1]),
+                np.hypot(s[0], H_c - 1 - s[1]),
+                np.hypot(W_c - 1 - s[0], H_c - 1 - s[1]),
+            ))
+        else:
+            rmax_s = rmax
+        visible = max(int(((rm > MIN_R) & (rm < rmax_s)).sum()), int(s[3]))
         cov = s[3] - 0.5 * (visible - s[3])
         if dbg:
             print(f"    [dbg] {ph}: D={s[2]*px_m*1000:.1f}mm m={s[3]}/"
@@ -1826,7 +1838,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
     cur_res = out_tuple[0] if out_tuple is not None else None
     _low_ps_blind = (cur_res is not None and q_list is None and phases is None
                      and float(cur_res[1][6]) < 0.18)
-    if cur_res is None or int(cur_res[1][3]) <= 3 or _low_ps_blind:
+    if lam_in is not None and (cur_res is None or int(cur_res[1][3]) <= 3 or _low_ps_blind):
         c_u, s_u, px_u = ((out_tuple[1], out_tuple[2], out_tuple[3])
                           if out_tuple is not None else (c1, s1, px_m * s1))
         old_snip = _SNIP_BG
@@ -2134,11 +2146,6 @@ def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
             # σ=inf、mar3450 σ1.68）自动退回 v2 决斗（geo 为主）。
             if kasa_ok:
                 s_sh = run(sh[0], sh[1], 0.0, d_range)
-                if s_sh is not None and s_sh[3] >= 4:
-                    if dbg:
-                        print(f"    [cascade] kasa证书 sh 为主 m={s_sh[3]} "
-                              f"rms={s_sh[4]:.2f} ps={s_sh[6]:+.3f}")
-                    return s_sh + ("sh",)
                 if s_geo is not None and s_sh is not None and (
                         s_geo[6] > s_sh[6] + 0.25
                         and s_geo[4] < 0.75 * s_sh[4]):
@@ -2146,6 +2153,11 @@ def solve_cascade(canvas, lam, px_m, q_list, I_rel=None, *,
                         print(f"    [cascade] geo 严格优势翻盘 "
                               f"m={s_geo[3]} rms={s_geo[4]:.2f}")
                     return s_geo + ("geo",)
+                if s_sh is not None and s_sh[3] >= 4:
+                    if dbg:
+                        print(f"    [cascade] kasa证书 sh 为主 m={s_sh[3]} "
+                              f"rms={s_sh[4]:.2f} ps={s_sh[6]:+.3f}")
+                    return s_sh + ("sh",)
                 if s_sh is not None and s_sh[3] >= 3:
                     return s_sh + ("sh",)
                 return s_geo + ("geo",)
