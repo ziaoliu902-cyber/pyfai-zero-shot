@@ -1540,7 +1540,7 @@ def auto_offset(img):
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
                 mask=None, canvas_side=None, refine5=False, prior=None,
-                px2_m=None):
+                px2_m=None, tilt_refine=True):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1686,6 +1686,43 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                         native_2d_ok = True
             except Exception:
                 native_2d_ok = False
+        # 低 ps 扇区 5 参倾角精化（与 native_2d / refine5 互补，按严格安全门控启用）
+        tilt_ref = None
+        tilt_ok = False
+        if (tilt_refine and lam_in is not None and m_ >= 4
+                and float(res[1][6]) < 0.4
+                and not (rf5 and rf5.get("ok")) and not native_2d_ok):
+            try:
+                from poni_out import fit_tilt as _fit_tilt
+                qs_tilt = None
+                if q_list is not None:
+                    qs_tilt = np.asarray(q_list, float)
+                elif res[0] is not None:
+                    from torchfai.phases import phase_qs as _pqs_t
+                    qs_tilt = np.asarray(_pqs_t(res[0]), float)
+                if qs_tilt is not None and len(qs_tilt) >= 4:
+                    tf = _fit_tilt(
+                        canvas, float(sol[0]), float(sol[1]), float(sol[2]),
+                        qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
+                        sfull=s, fwd=None, nsec=36, mass_rel=0.10, bump=1.5)
+                    if tf is not None:
+                        d_old_m = float(sol[2]) * px_c
+                        d_rel = abs(tf["dist"] - d_old_m) / max(d_old_m, 1e-6)
+                        ok_tf = (tf["nrings"] >= 4 and tf["npts"] >= 40
+                                 and tf["rms5"] < 0.006 and tf["tilt_deg"] < 3.5
+                                 and d_rel < 0.04)
+                        tf["applied"] = bool(ok_tf)
+                        tilt_ref = tf
+                        if ok_tf:
+                            sol = tuple([
+                                tf["poni2"] / (px2_nat * s) - 0.5,
+                                tf["poni1"] / (px1_nat * s) - 0.5,
+                                tf["dist"] / px_c,
+                                *sol[3:],
+                            ])
+                            tilt_ok = True
+            except Exception:
+                tilt_ref = None
         # Pseudo-Voigt 后精化与少环拆分交叉验证（单次后处理，不影响搜索速度与既有路径）
         pv_ref = None
         cv_res = None
@@ -1762,7 +1799,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                 r_pv[idx] = float(r0)
 
                     if (len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok"))
-                            and not native_2d_ok):
+                            and not native_2d_ok and not tilt_ok):
                         denom = float(np.sum(k_m ** 2))
                         if denom > 0:
                             D_pv = float(np.sum(r_pv * k_m) / denom)
@@ -1827,6 +1864,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     gap_masked=gap_n,   # B7:自动 mask 像素数(0=无)
                     refine5=rf5,
                     native_2d=native_2d_ok,
+                    tilt_ref=tilt_ref,
                     pv_ref=pv_ref,
                     cv=cv_res,
                     mf_score=mf_score,

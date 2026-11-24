@@ -26,6 +26,13 @@ MODE = sys.argv[1] if len(sys.argv) > 1 else "ceria"
 DBG = "dbg" in sys.argv[2:]
 # 原生 2D 精化：ceria 默认开（交付 D 0.49→0.07mm），alumina 默认关（无增益且更慢）
 R2D = ("r2d" in sys.argv[2:]) or (MODE == "ceria" and "nor2d" not in sys.argv[2:])
+# 找环灵敏度（2026-11-06 三档）：默认 0=标准（与旧版逐位一致）；
+# 传 sens1/sens2 复核高/极高档精度（降 prominence 门 + 滑动中位数去背景）
+for _a in sys.argv[2:]:
+    if _a.startswith("sens") and _a[4:].isdigit():
+        import solver_core as _sc
+        _sc.set_ring_sensitivity(int(_a[4:]))
+        print(f"[sens] 找环灵敏度 = {_a[4:]}")
 
 
 def acc(fit_mm, gt_mm):
@@ -216,7 +223,7 @@ elif MODE == "alumina":
         # R3 统一入口：锁相 Al2O3（phases 单相 → solve_cascade+库内
         # I_rel+rms_floor 3.5，与旧直调数值一致；auto_center/refine_2d
         # 保持旧关态）
-        res = solve_image(img, (px1 + px2) / 2, lam=lam, phases=[cons],
+        res = solve_image(img, px1, px2_m=px2, lam=lam, phases=[cons],
                           solve_kw=dict(cascade=True, auto_center=False,
                                         refine_2d=False), dbg=DBG)
         sol = res["sol"] if res else None
@@ -227,7 +234,7 @@ elif MODE == "alumina":
             es.append(999.0)
             continue
         cx, cy, D, m, rms = sol[:5]
-        px_m = (px1 + px2) / 2 * s
+        px_m = res["px_m"]
         if R2D:
             _o = refine_geometry_2d(img, cx * s, cy * s, D * s, Q, lam,
                                     n_iter=3)
