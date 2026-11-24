@@ -148,7 +148,7 @@ def make_pyfai_fwd(px1=None, px2=None, spline=None):
 
 def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
              nsec=18, win=6.0, mass_rel=0.12, bump=1.5, dbg=False,
-             data_out=None):
+             data_out=None, suspect_tol=5e-3, min_gap=14.0):
     """圆解 (cx, cy, D_px 画布px) → 控制点 5 参 LSQ。
 
     px1/px2 = 画布两轴物理尺寸（m，含池化因子；各向异性进模型）。
@@ -173,7 +173,7 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     # ② 嫌疑环按 |环中位残差|≤5mrad 逐个数据收编。2026-10-31 alumina。
     gap_ok = np.ones(len(qs), bool)
     for k in range(1, len(qs)):
-        if abs(radii[k] - radii[k - 1]) < 14.0:
+        if abs(radii[k] - radii[k - 1]) < float(min_gap):
             gap_ok[k] = gap_ok[k - 1] = False
     base = np.where(vis & gap_ok)[0]
     suspect = np.where(vis & ~gap_ok)[0]
@@ -258,7 +258,7 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
             if m.sum() < 3:
                 continue
             med = float(np.median(model(x3, sd1[m], sd2[m]) - stt[m]))
-            if abs(med) <= 5e-3:
+            if abs(med) <= float(suspect_tol):
                 admit.append(k)
             elif dbg:
                 print(f"    [dbg] 倾角: 弃嫌疑环 r={radii[suspect[k]]:.0f}px"

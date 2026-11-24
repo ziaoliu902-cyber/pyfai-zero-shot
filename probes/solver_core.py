@@ -910,7 +910,7 @@ def solve(peaks_rp, cx0, cy0, D_px0, q_list, lam, px_m,
                         continue
                     az_t = azimuthal_consistency_score(
                         canvas, ct[3], ct[4], qs, lam, ct[5])["score"]
-                    if az_t > az0 + 0.08 and az_t > best_az:
+                    if az_t > az0 + 0.025 and az_t > best_az:
                         best_i, best_az = idx_t, az_t
                 if best_i > 0:
                     cands[0], cands[best_i] = cands[best_i], cands[0]
@@ -1663,27 +1663,36 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     sol = tuple(sol)
             except Exception:
                 rf5 = None
-        # 原生分辨率 2D Taubin 精化（按严格安全门控启用）
+        # 高分辨率 2D Taubin 精化（>16M 大图自动降到 2048px 精化，其余跑原生分辨率）
         native_2d_ok = False
         if (kw.get("refine_2d", True) and res[0] is not None
                 and float(res[1][6]) > 0.4 and m_ >= 4 and s > 1
-                and img.size <= 16_000_000 and not (rf5 and rf5.get("ok"))):
+                and not (rf5 and rf5.get("ok"))):
             try:
                 from torchfai.phases import phase_qs as _pqs2
-                if mask is not None:
-                    register_mask(mask, 1)
-                qs_2d = np.asarray(_pqs2(res[0]), float)
-                out_n = refine_geometry_2d(
-                    img, float(sol[0]) * s, float(sol[1]) * s, float(sol[2]) * s,
-                    qs_2d, float(res[2]), n_iter=2, px_ratio=(px2_nat / px1_nat))
-                if out_n is not None and out_n[3] >= 4:
-                    shift_nat = float(np.hypot(out_n[0] - float(sol[0]) * s,
-                                               out_n[1] - float(sol[1]) * s))
-                    d_new_c = out_n[2] / s
-                    if (shift_nat < 15.0
-                            and abs(d_new_c - float(sol[2])) / max(float(sol[2]), 1e-6) < 0.025):
-                        sol = tuple([out_n[0] / s, out_n[1] / s, d_new_c, *sol[3:]])
-                        native_2d_ok = True
+                if img.size <= 16_000_000:
+                    img_hi, s_hi = img, 1
+                elif s > 2:
+                    img_hi, s_hi, _, _ = to_canvas(img, max_side=2048)
+                else:
+                    img_hi, s_hi = None, s
+                if img_hi is not None and s_hi < s:
+                    scale = float(s) / float(s_hi)
+                    if mask is not None:
+                        register_mask(mask, s_hi)
+                    qs_2d = np.asarray(_pqs2(res[0]), float)
+                    out_n = refine_geometry_2d(
+                        img_hi, float(sol[0]) * scale, float(sol[1]) * scale,
+                        float(sol[2]) * scale, qs_2d, float(res[2]),
+                        n_iter=2, px_ratio=(px2_nat / px1_nat))
+                    if out_n is not None and out_n[3] >= 4:
+                        shift_hi = float(np.hypot(out_n[0] - float(sol[0]) * scale,
+                                                  out_n[1] - float(sol[1]) * scale))
+                        d_new_c = out_n[2] / scale
+                        if (shift_hi < 15.0
+                                and abs(d_new_c - float(sol[2])) / max(float(sol[2]), 1e-6) < 0.025):
+                            sol = tuple([out_n[0] / scale, out_n[1] / scale, d_new_c, *sol[3:]])
+                            native_2d_ok = True
             except Exception:
                 native_2d_ok = False
         # 低 ps 扇区 5 参倾角精化（与 native_2d / refine5 互补，按严格安全门控启用）
@@ -1704,7 +1713,9 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     tf = _fit_tilt(
                         canvas, float(sol[0]), float(sol[1]), float(sol[2]),
                         qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
-                        sfull=s, fwd=None, nsec=36, mass_rel=0.10, bump=1.5)
+                        sfull=s, fwd=None, nsec=36, win=6.0,
+                        mass_rel=0.10, bump=1.5,
+                        suspect_tol=2e-3, min_gap=14.0)
                     if tf is not None:
                         d_old_m = float(sol[2]) * px_c
                         d_rel = abs(tf["dist"] - d_old_m) / max(d_old_m, 1e-6)
