@@ -420,8 +420,17 @@ def set_spot_clip(k=0.0):
     _SPOT_CLIP = float(k) if k else 0.0
 
 
+_SNIP_BG = False  # 强斜背底弱环救援模式（默认关闭，仅欠定/失败救援时开启）
+
+
+def set_snip_bg(enabled=False):
+    """设置 ring_radii 是否使用 SNIP 迭代削峰背景估计。"""
+    global _SNIP_BG
+    _SNIP_BG = bool(enabled)
+
+
 def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
-               use_pv=False, spot_clip=None):
+               use_pv=False, spot_clip=None, use_snip=None):
     """均值径向谱 + find_peaks + 抛物线内插。返回 [(r_px, 峰高), ...] 升序。
     · 中位数方案已证伪：环像素也是少数，median 把环一起杀。
     · cnt 掩膜已证伪：ceria 真环靠角落 bin 喂票，会被 <15% 中位掩膜杀光
@@ -473,7 +482,19 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
     p_ref = float(prof[_outer].max()) if _outer.any() else float(prof.max())
     _lv = _RING_SENS
     _pdet = None
-    if _lv > 0:
+    _us = _SNIP_BG if use_snip is None else bool(use_snip)
+    _snip_mad = 0.0
+    if _us:
+        from weak_ring import snip_background
+        _bg_snip = snip_background(prof, max_half_win=24)
+        _pdet = prof - _bg_snip
+        _sub = _pdet[_outer] if _outer.any() else _pdet
+        _snip_mad = 1.4826 * float(np.median(np.abs(_sub - float(np.median(_sub))))) if _sub.size else 0.0
+        _ref = float(_sub.max()) if _sub.size else float(_pdet.max())
+        pk, _ = find_peaks(_pdet,
+                           prominence=max(prom * 0.20 * _ref, 4.0 * _snip_mad, 1e-12),
+                           distance=12)
+    elif _lv > 0:
         # 去背景检测：减掉 ~51 bin 滑动中位数，陡背景上的弱环才显出来
         from scipy.ndimage import median_filter as _mf
         _pdet = prof - _mf(prof, size=51, mode="nearest")
@@ -486,20 +507,25 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
     for p in pk:
         if p <= 2 or p >= nb - 3:
             continue
-        if prof[p] <= bg:            # 角落涟漪/负向抖动，非衍射峰
-            continue
-        if _pdet is not None and _pdet[p] <= 0:
-            continue
-        y0, y1, y2 = prof[p - 1], prof[p], prof[p + 1]
+        if _us:
+            if _pdet[p] <= max(3.5 * _snip_mad, 1e-12):
+                continue
+        else:
+            if prof[p] <= bg:            # 角落涟漪/负向抖动，非衍射峰
+                continue
+            if _pdet is not None and _pdet[p] <= 0:
+                continue
+        src_p = _pdet if _us else prof
+        y0, y1, y2 = src_p[p - 1], src_p[p], src_p[p + 1]
         d = 0.5 * (y0 - y2) / max(y0 - 2 * y1 + y2, 1e-12)
         rp = (p + 0.5 + np.clip(d, -1, 1)) * bin_px
         if _SPLIT_G:                 # B11c:分裂高斯精化(偏斜 11× 压缩)
-            rg = _split_gauss_center(prof, p, bg, c0=rp / bin_px)
+            rg = _split_gauss_center(src_p, p, 0.0 if _us else bg, c0=rp / bin_px)
             if rg is not None:
                 rp = (rg + 0.5) * bin_px
         if rp < min_r:
             continue
-        out.append((rp, prof[p]))
+        out.append((rp, float(_pdet[p]) if _us else prof[p]))
     out.sort()
     # 子峰合并：噪声/倾角把一条环裂成多个近邻峰（2026-10-31 alumina 0032：
     # 首环裂 6 个子峰跨 ±9px，配对 rms 虚高 0.02px 门槛误杀真解）。
@@ -512,11 +538,12 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
             merged[-1] = ((rp0 * h0 + rp * h) / (h0 + h), h0 + h)
         else:
             merged.append((rp, h))
+    prof_out = _pdet if _us else prof
     if use_pv and merged:
         try:
             from peak_fit import refine_radial_peaks_pv
             r_axis = (np.arange(nb) + 0.5) * bin_px
-            pv_list = refine_radial_peaks_pv(r_axis, prof, merged, half_win=6)
+            pv_list = refine_radial_peaks_pv(r_axis, prof_out, merged, half_win=6)
             if len(pv_list) == len(merged):
                 new_merged = []
                 for (rp, h), pv in zip(merged, pv_list):
@@ -529,7 +556,7 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
                 merged = new_merged
         except Exception:
             pass
-    return merged, prof, bin_px, good
+    return merged, prof_out, bin_px, good
 
 
 _SPLIT_G = True    # B11c/d+B12①(2026-11-07):分裂高斯定心默认开。
@@ -1426,7 +1453,7 @@ def auto_offset(img):
 
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
-                mask=None, canvas_side=None, refine5=False):
+                mask=None, canvas_side=None, refine5=False, prior=None):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1516,7 +1543,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         r = _si_joint(canvas, px_c, kw, dbg)
         return r if r is not None else None      # 已是 (ph, sol, λ̂)
 
-    def _pack(res, canvas, s, px_c, used_fb, reason, dstat, lstat):
+    def _pack(res, canvas, s, px_c, used_fb, reason, dstat, lstat, snip_rescued=False):
         # AgBh↔AgSt 歧义标注(2026-11-08):两相环列同为 d1/n 等比谐波,
         # ≤4 条环时 AgSt 把 D 缩 49.70/58.38 倍即可完美互套——锁 λ 也
         # 不可分(Pilatus1M=AgBh 图被 AgSt 抢认,λ 盲/锁真 λ 双复现)。
@@ -1551,8 +1578,11 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         # Pseudo-Voigt 后精化与少环拆分交叉验证（单次后处理，不影响搜索速度与既有路径）
         pv_ref = None
         cv_res = None
+        mf_score = None
+        prof_f = None
+        bp_f = None
+        qs_cur = None
         try:
-            qs_cur = None
             if q_list is not None:
                 qs_cur = np.asarray(q_list, float)
             elif res[0] is not None:
@@ -1569,7 +1599,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 r_th_all = D_c * k_all
 
                 def _match_at(cx_try, cy_try):
-                    peaks_f, prof_f, bp_f, _ = ring_radii(canvas, cx_try, cy_try)
+                    peaks_f, prof_loc, bp_loc, _ = ring_radii(
+                        canvas, cx_try, cy_try, use_snip=snip_rescued)
                     pairs = []
                     for qi, r_th in enumerate(r_th_all):
                         tol = max(1.5, 0.015 * r_th)
@@ -1592,7 +1623,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                         rms_r = float(np.sqrt(np.mean((r_arr - D_c * k_arr) ** 2)))
                     else:
                         rms_r = 999.0
-                    return mlist, prof_f, bp_f, rms_r
+                    return mlist, prof_loc, bp_loc, rms_r
 
                 sol_rms = float(sol[4])
                 matched, prof_f, bp_f, rms_raw = _match_at(float(sol[0]), float(sol[1]))
@@ -1641,6 +1672,18 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 elif m_ <= 5:
                     from split_half_cv import split_half_verify
                     cv_res = split_half_verify([], [], lam_u, D_px=float(sol[2]))
+
+                # 全谱连续模板匹配评分（仅作弱信号诊断指标，不干扰已有裁决）
+                if prof_f is not None and bp_f is not None:
+                    from weak_ring import snip_background, matched_filter_score
+                    i_cur = i_rel
+                    if i_cur is None and res[0] is not None:
+                        from torchfai.phases import PHASES as _PHS
+                        if res[0] in _PHS:
+                            i_cur = _PHS[res[0]][1]
+                    prof_sub = prof_f - snip_background(prof_f, max_half_win=24)
+                    mf_score = matched_filter_score(prof_sub, bp_f, qs_cur, i_cur,
+                                                    lam_u, float(sol[2]))
         except Exception:
             pass
 
@@ -1673,6 +1716,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     refine5=rf5,
                     pv_ref=pv_ref,
                     cv=cv_res,
+                    mf_score=mf_score,
+                    snip_rescued=bool(snip_rescued),
                     confidence=conf,
                     az_coverage=az_cov,
                     is_partial_arc=is_part)
@@ -1708,60 +1753,129 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
             scan, reason = True, "b-rms-m"
         elif s1 >= FB_S_RISK and q_list is None:
             scan, reason = True, "c-risk"
+    out_tuple = None
     if not scan:
-        return None if r1 is None else _pack(
-            r1, c1, s1, px_m * s1, False, None, dstat, (None,) * 3)
-
-    # ---- (c) 分叉预检（廉价）：大画布单 λ 解（cascade/refine_2d 关，
-    # auto_center 必须开——E4M 束在画布一角，几何中心的经典解会出垃圾 D
-    # → 假分叉 → 误劫持，2026-11-05 _r2_gate_test 实证）回答"大画布是否
-    # 给出结构性不同的解"。同解重解（E4M/E9M：D 分叉 0.2%/0.07%，Δps
-    # 虚涨到 +0.15/+0.25）不算画布档冲突，直接回默认档，省掉全质量网格
-    # 扫描。分叉 ≥FB_FORK（mar 108%）才升级到 λ 网格救援。探针失败/环<3
-    # 视为无分叉（大画布更没救）。----
-    if reason == "c-risk":
-        if lam_in is None:
-            # 联合 λ–D 无同 λ 探针可言（λ 都未定）——直接保默认档
-            return _pack(r1, c1, s1, px_m * s1, False, "c-risk-rejected",
-                         dstat, (None,) * 3)
-        probe_kw = dict(cascade=False, auto_center=True, refine_2d=False)
-        rp = _si_blind(c2, px_m * s2, lam_in, phases, probe_kw, dbg)
-        fork = None
-        if rp is not None and rp[1][3] >= 3 and dstat[1] >= 3:
-            fork = abs((rp[1][2] * s2) / (r1[1][2] * s1) - 1.0)
-        if fork is None or fork < FB_FORK:
-            return _pack(r1, c1, s1, px_m * s1, False,
-                         "c-risk-rejected", dstat, _stat(rp))
-        if dbg:
-            print(f"  [fb] c-risk 分叉 {fork*100:.0f}% ≥ {FB_FORK*100:.0f}%"
-                  f" → λ 网格救援")
-
-    # ---- 救援扫描（a/b 或 c 分叉确认）：λ 网格 / 联合 ----
-    if lam_in is not None:
-        lo, hi, n = fb_grid if fb_grid else FB_LAM_GRID
-        best = None
-        for lg in np.geomspace(lo, hi, n) * lam_in:
-            rr = _solve_at(c2, px_m * s2, float(lg))
-            if rr is None:
-                continue
-            key = (rr[1][6], rr[1][3], -rr[1][4])
-            if best is None or key > best[0]:
-                best = (key, rr)
-        r2 = None if best is None else best[1]
+        if r1 is not None:
+            out_tuple = (r1, c1, s1, px_m * s1, False, None, (None,) * 3)
     else:
-        r2 = _solve_at(c2, px_m * s2, None)
-    lstat = _stat(r2)
+        run_r2 = True
+        # ---- (c) 分叉预检（廉价）：大画布单 λ 解（cascade/refine_2d 关，
+        # auto_center 必须开——E4M 束在画布一角，几何中心的经典解会出垃圾 D
+        # → 假分叉 → 误劫持，2026-11-05 _r2_gate_test 实证）回答"大画布是否
+        # 给出结构性不同的解"。同解重解（E4M/E9M：D 分叉 0.2%/0.07%，Δps
+        # 虚涨到 +0.15/+0.25）不算画布档冲突，直接回默认档，省掉全质量网格
+        # 扫描。分叉 ≥FB_FORK（mar 108%）才升级到 λ 网格救援。探针失败/环<3
+        # 视为无分叉（大画布更没救）。----
+        if reason == "c-risk":
+            if lam_in is None:
+                # 联合 λ–D 无同 λ 探针可言（λ 都未定）——直接保默认档
+                out_tuple = (r1, c1, s1, px_m * s1, False, "c-risk-rejected",
+                             (None,) * 3)
+                run_r2 = False
+            else:
+                probe_kw = dict(cascade=False, auto_center=True, refine_2d=False)
+                rp = _si_blind(c2, px_m * s2, lam_in, phases, probe_kw, dbg)
+                fork = None
+                if rp is not None and rp[1][3] >= 3 and dstat[1] >= 3:
+                    fork = abs((rp[1][2] * s2) / (r1[1][2] * s1) - 1.0)
+                if fork is None or fork < FB_FORK:
+                    out_tuple = (r1, c1, s1, px_m * s1, False,
+                                 "c-risk-rejected", _stat(rp))
+                    run_r2 = False
+                elif dbg:
+                    print(f"  [fb] c-risk 分叉 {fork*100:.0f}% ≥ {FB_FORK*100:.0f}%"
+                          f" → λ 网格救援")
 
-    # ---- 采用判决：T4 键序 (ps, m, −rms) 严格优于默认档 ----
-    # （校准：mar 救援解 m=5 < Quartz 假解 m=11，"m 不降"原案会误拒——
-    # ps 首位比较先分胜负；E4M/E9M 同解重解已在分叉预检挡掉）
-    adopt = r2 is not None and (
-        True if reason == "a-none" else
-        (lstat[0], lstat[1], -lstat[2]) > (dstat[0], dstat[1], -dstat[2]))
-    if adopt:
-        return _pack(r2, c2, s2, px_m * s2, True, reason, dstat, lstat)
-    return None if r1 is None else _pack(
-        r1, c1, s1, px_m * s1, False, reason + "-rejected", dstat, lstat)
+        # ---- 救援扫描（a/b 或 c 分叉确认）：λ 网格 / 联合 ----
+        if run_r2:
+            if lam_in is not None:
+                lo, hi, n = fb_grid if fb_grid else FB_LAM_GRID
+                best = None
+                for lg in np.geomspace(lo, hi, n) * lam_in:
+                    rr = _solve_at(c2, px_m * s2, float(lg))
+                    if rr is None:
+                        continue
+                    key = (rr[1][6], rr[1][3], -rr[1][4])
+                    if best is None or key > best[0]:
+                        best = (key, rr)
+                r2 = None if best is None else best[1]
+            else:
+                r2 = _solve_at(c2, px_m * s2, None)
+            lstat = _stat(r2)
+
+            # ---- 采用判决：T4 键序 (ps, m, −rms) 严格优于默认档 ----
+            # （校准：mar 救援解 m=5 < Quartz 假解 m=11，"m 不降"原案会误拒——
+            # ps 首位比较先分胜负；E4M/E9M 同解重解已在分叉预检挡掉）
+            adopt = r2 is not None and (
+                True if reason == "a-none" else
+                (lstat[0], lstat[1], -lstat[2]) > (dstat[0], dstat[1], -dstat[2]))
+            if adopt:
+                out_tuple = (r2, c2, s2, px_m * s2, True, reason, lstat)
+            elif r1 is not None:
+                out_tuple = (r1, c1, s1, px_m * s1, False,
+                             reason + "-rejected", lstat)
+
+    # ---- SNIP 弱环救援 + 弱先验辅助（仅在解不出、m<=3 欠定、或全库盲解落入 ps<0.18 假盆地时按严格门控触发）----
+    snip_flag = False
+    cur_res = out_tuple[0] if out_tuple is not None else None
+    _low_ps_blind = (cur_res is not None and q_list is None and phases is None
+                     and float(cur_res[1][6]) < 0.18)
+    if cur_res is None or int(cur_res[1][3]) <= 3 or _low_ps_blind:
+        c_u, s_u, px_u = ((out_tuple[1], out_tuple[2], out_tuple[3])
+                          if out_tuple is not None else (c1, s1, px_m * s1))
+        old_snip = _SNIP_BG
+        r_snip = None
+        try:
+            set_snip_bg(True)
+            r_snip = _solve_at(c_u, px_u, lam_in)
+            if (r_snip is None or int(r_snip[1][3]) <= 3) and prior and lam_in is not None:
+                D_pr_mm = prior.get("D_mm")
+                cx_pr = prior.get("cx")
+                cy_pr = prior.get("cy")
+                c_pr = ((float(cx_pr) / s_u, float(cy_pr) / s_u)
+                        if (cx_pr is not None and cy_pr is not None)
+                        else ((c_u.shape[1] - 1) / 2.0, (c_u.shape[0] - 1) / 2.0))
+                D_ref_pr = float(D_pr_mm) / 1000.0 if D_pr_mm else 0.0
+                ph_pr = [prior["phase"]] if prior.get("phase") else phases
+                if q_list is None:
+                    r_pr = _solve_auto_at(
+                        c_u, lam_in, px_u, c_pr[0], c_pr[1], ph_pr, dbg,
+                        D_ref_pr, (0.5, 1.8), kw.get("rms_floor", 3.5),
+                        False, trust_center=True)
+                    if r_pr is not None:
+                        r_pr = (r_pr[0], r_pr[1], lam_in)
+                        if r_snip is None or (r_pr[1][3], r_pr[1][6]) > (r_snip[1][3], r_snip[1][6]):
+                            r_snip = r_pr
+        except Exception:
+            r_snip = None
+        finally:
+            set_snip_bg(old_snip)
+
+        if r_snip is not None:
+            adopt_snip = False
+            if cur_res is None:
+                adopt_snip = int(r_snip[1][3]) >= 3 and float(r_snip[1][6]) >= 0.20
+            elif _low_ps_blind and int(cur_res[1][3]) > 3:
+                adopt_snip = (int(r_snip[1][3]) >= 4
+                              and float(r_snip[1][4]) < 2.5
+                              and float(r_snip[1][6]) >= max(0.25, float(cur_res[1][6]) + 0.15))
+            else:
+                adopt_snip = (int(r_snip[1][3]) >= 4
+                              and float(r_snip[1][4]) < 2.5
+                              and float(r_snip[1][6]) > float(cur_res[1][6]) + 0.05)
+            if adopt_snip:
+                snip_flag = True
+                if out_tuple is None:
+                    out_tuple = (r_snip, c_u, s_u, px_u, True, "snip-rescue", (None,) * 3)
+                else:
+                    out_tuple = (r_snip, c_u, s_u, px_u, out_tuple[4],
+                                 (out_tuple[5] or "snip-rescue"), out_tuple[6])
+
+    if out_tuple is None:
+        return None
+    return _pack(out_tuple[0], out_tuple[1], out_tuple[2], out_tuple[3],
+                 out_tuple[4], out_tuple[5], dstat, out_tuple[6],
+                 snip_rescued=snip_flag)
 
 
 _SH_CACHE = {}

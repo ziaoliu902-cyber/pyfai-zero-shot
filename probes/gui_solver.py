@@ -548,12 +548,14 @@ class SolveWorker(QThread):
     done = pyqtSignal(object)
     fail = pyqtSignal(str)
 
-    def __init__(self, img, lam, px_um, mask=None, dref=None, canvas_side=None):
+    def __init__(self, img, lam, px_um, mask=None, dref=None, canvas_side=None,
+                 prior=None):
         super().__init__()
         self.img, self.lam, self.px_um = img, lam, px_um
         self.mask = mask
         self.dref = dref
         self.canvas_side = canvas_side
+        self.prior = prior
 
     def run(self):
         try:
@@ -572,7 +574,8 @@ class SolveWorker(QThread):
             res = solve_image(img, self.px_um * 1e-6,
                               lam=(float(self.lam) if self.lam else None),
                               mask=self.mask,
-                              canvas_side=_cs)
+                              canvas_side=_cs,
+                              prior=self.prior)
             if res is not None and _auto:
                 res["auto_small"] = True
             if res is None:
@@ -736,6 +739,8 @@ class SolveWorker(QThread):
                                 is_partial_arc=res.get("is_partial_arc", False),
                                 cv=res.get("cv"),
                                 pv_ref=res.get("pv_ref"),
+                                snip_rescued=bool(res.get("snip_rescued", False)),
+                                mf_score=res.get("mf_score"),
                                 ring_rms=ring_rms_v, ring_n=ring_n,
                                 center_src=center_src,
                                 auto_small=bool(res.get("auto_small")),
@@ -1021,6 +1026,9 @@ class Win(QMainWindow):
         self.cb_small.setToolTip("近距离/环挤在画面中心时勾选：用更大画布，\n"
                                  "保住小半径的环（否则会被降采样压没）")
         par_f.addRow(self.cb_small)
+        self.cb_mem = QCheckBox("机台记忆先验（弱图辅助）")
+        self.cb_mem.setToolTip("记住上次高置信解的束心与距离，仅在弱环/欠定救援时作弱先验辅助；正常图不启用")
+        par_f.addRow(self.cb_mem)
         g_par.setLayout(par_f)
 
         g_run = QGroupBox("运行")
@@ -1401,10 +1409,21 @@ class Win(QMainWindow):
         _cs = None
         if getattr(self, "cb_small", None) is not None and self.cb_small.isChecked():
             _cs = max(720, int(max(self.img.shape) / 3))
+        _prior = None
+        if getattr(self, "cb_mem", None) is not None and self.cb_mem.isChecked():
+            try:
+                _mcx = self.st.value("mem_cx")
+                _mcy = self.st.value("mem_cy")
+                _md = self.st.value("mem_D_mm")
+                if _mcx is not None and _mcy is not None and _md is not None:
+                    _prior = dict(cx=float(_mcx), cy=float(_mcy), D_mm=float(_md))
+            except Exception:
+                _prior = None
         self.worker = SolveWorker(self.img, self._lam_A(), px,
                                   mask=self.mask,
                                   dref=(self.e_dref.text().strip() or None),
-                                  canvas_side=_cs)
+                                  canvas_side=_cs,
+                                  prior=_prior)
         self.worker.done.connect(self.on_done)
         self.worker.fail.connect(self.on_fail)
         self.b_run.setEnabled(False); self.pb.setVisible(True)
@@ -1478,6 +1497,12 @@ class Win(QMainWindow):
         conf_eval = evaluate_confidence(m=m_val, ps=ps_val,
                                         az_cov=res.get("az_coverage", 1.0),
                                         cv_ratio=cv_ratio)
+        if conf_eval["tier"] == "HIGH":
+            self.st.setValue("mem_cx", float(res["cx"]))
+            self.st.setValue("mem_cy", float(res["cy"]))
+            self.st.setValue("mem_D_mm", float(D_mm))
+        mf_val = res.get("mf_score")
+        mf_str = f"  mf={mf_val:.3f}" if mf_val is not None else ""
         lines = [
             f"物相: {res['ph']}",
             f"波长 λ̂: {res['lam']:.4f} Å" + ("" if not res["native"] else "（联合解）"),
@@ -1489,10 +1514,12 @@ class Win(QMainWindow):
                 f"束心 σ: ±({res['scx_px']:.2f}, {res['scy_px']:.2f}) px（环间一致性 1σ）"
             )
         lines.extend([
-            f"匹配环数 m={m_val}  rms={res['sol'][4]:.2f}px  ps={ps_val:.3f}",
+            f"匹配环数 m={m_val}  rms={res['sol'][4]:.2f}px  ps={ps_val:.3f}{mf_str}",
             f"置信度: {conf_eval['badge']}",
             f"2D 精化: {'✓ ' + str(res['n2d']) + ' 环（中心已用）' if res['native'] else '环不完整→跳过（部分弧 Kasa 易拉偏）'}",
         ])
+        if res.get("snip_rescued"):
+            lines.append("SNIP 弱环救援: ✓ 已从强背底中挖出弱环并重解")
         pv_ref = res.get("pv_ref")
         if pv_ref and pv_ref.get("applied"):
             lines.append(
