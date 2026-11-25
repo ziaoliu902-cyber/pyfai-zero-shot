@@ -1015,7 +1015,21 @@ def solve_auto(canvas, lam, px_m, phases=None, dbg=False,
                                     and alt[1][4] < res[1][4]
                                     and (alt[1][3] >= 4 or res[1][3] < 4
                                          or alt[1][6] > res[1][6] + 0.15))):
-            res = alt
+            allow_alt = True
+            if res is not None and alt[1][6] < 0.40 and res[1][3] >= 6:
+                try:
+                    from weak_ring import azimuthal_consistency_score as _az_s
+                    lamA_g = _lam_A(lam)
+                    az_res = _az_s(canvas, res[1][0], res[1][1],
+                                   phase_qs(res[0]), lamA_g, res[1][2])["score"]
+                    az_alt = _az_s(canvas, alt[1][0], alt[1][1],
+                                   phase_qs(alt[0]), lamA_g, alt[1][2])["score"]
+                    if az_alt < az_res:
+                        allow_alt = False
+                except Exception:
+                    pass
+            if allow_alt:
+                res = alt
     if refine_2d and res is not None and res[1][6] > 0.4 and res[1][3] >= 4:
         # T3：2D 逐环 Kasa 精化（门控 ps>0.4 且 m≥4——初值错会收敛到
         # 错环族；refine_geometry_2d 自带 <3 环 / 中心跳 >30px 拒收）。
@@ -1081,6 +1095,31 @@ def _solve_auto_at(canvas, lam, px_m, cx0, cy0, phases, dbg, D_ref_m,
     # 前提是层0已修：谱在锐度中心下可信（错中心垃圾谱曾令 pscore 误判，
     # 2026-10-31 注记——那时没有 center_by_sharpness）。
     ps_max = max(c[1] for c in cands)
+    if ps_max < 0.40 and len(cands) >= 2 and peaks:
+        try:
+            from weak_ring import azimuthal_consistency_score as _az_score
+            top_pks = sorted(peaks, key=lambda t: -t[1])[:10]
+            pool = [c for c in cands if c[2] >= 4] or cands
+            scored = []
+            for c in pool:
+                cov_c, ps_c, m_c, neg_rms_c, ph_c, s_c, _vis_c = c
+                q_ph = phase_qs(ph_c)
+                rm_c = _r_model(q_ph, lamA, s_c[2])
+                top_hit = sum(
+                    1 for rp, _ in top_pks
+                    if len(rm_c) and float(np.min(np.abs(rm_c - rp))) <= 3.5
+                )
+                az_c = _az_score(canvas, s_c[0], s_c[1], q_ph, lamA, s_c[2])["score"]
+                score_2d = float(az_c) * float(top_hit)
+                if dbg:
+                    print(f"    [dbg] 2D仲裁 {ph_c}: az={az_c:.3f} top10={top_hit}/10 score={score_2d:.3f}")
+                scored.append((score_2d, cov_c, ps_c, m_c, neg_rms_c, top_hit, ph_c, s_c))
+            scored.sort(reverse=True)
+            best_2d = scored[0]
+            if best_2d[5] >= 4 and best_2d[0] > 0.5:
+                return best_2d[6], best_2d[7]
+        except Exception:
+            pass
     keep = [c for c in cands if c[1] >= ps_max - 0.15]
     keep.sort(reverse=True)
     # 子集简并破除（W9 kasa 战役）：cov 打平（≤1.0）且都过了谱相关档的
