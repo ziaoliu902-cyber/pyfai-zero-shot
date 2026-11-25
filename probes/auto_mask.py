@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """auto_mask.py：自动坏点 + 束挡阴影 + 模块缝隙组合遮罩生成。"""
 import numpy as np
-from scipy.ndimage import label, median_filter
+from scipy.ndimage import label, maximum_filter, median_filter
 
 from solver_core import auto_gap_mask
 
@@ -19,16 +19,22 @@ def detect_bad_pixels(img, hot_z=8.0):
     if invalid.any():
         clean[invalid] = float(np.median(arr[valid]))
     med = median_filter(clean, size=3, mode="nearest")
+    fp = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=bool)
+    nb_max = maximum_filter(clean, footprint=fp, mode="nearest")
     resid = clean - med
     r_valid = resid[valid]
     r_med = float(np.median(r_valid))
     mad = float(np.median(np.abs(r_valid - r_med)))
     sigma = max(1.4826 * mad, 1.0)
-    hot = valid & (resid > r_med + float(hot_z) * sigma)
+    hot = (
+        valid
+        & (clean > 4.0 * np.maximum(nb_max, 0.0) + max(15.0 * sigma, 30.0))
+        & (resid > r_med + max(float(hot_z), 12.0) * sigma)
+    )
     return invalid | hot
 
 
-def detect_beamstop_shadow(img, cx=None, cy=None, dark_frac=0.15,
+def detect_beamstop_shadow(img, cx=None, cy=None, dark_frac=0.25,
                            max_area_frac=0.15):
     """检测靠近束流中心的暗区连通域（束流挡盘/挡杆阴影）。"""
     arr = np.asarray(img, dtype=np.float64)
@@ -41,11 +47,12 @@ def detect_beamstop_shadow(img, cx=None, cy=None, dark_frac=0.15,
     if valid.sum() < 100:
         return np.zeros(arr.shape, dtype=bool)
     vals = arr[valid]
+    p_dark = float(np.percentile(vals, 0.1))
     p10 = float(np.percentile(vals, 10.0))
     p50 = float(np.percentile(vals, 50.0))
-    if p50 <= 0.0:
+    if p50 <= p_dark:
         return np.zeros(arr.shape, dtype=bool)
-    thr = min(p10, float(dark_frac) * p50)
+    thr = min(p10, p_dark + float(dark_frac) * (p50 - p_dark))
     dark = valid & (arr <= thr)
     if not dark.any():
         return np.zeros(arr.shape, dtype=bool)

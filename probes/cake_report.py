@@ -205,6 +205,20 @@ def _geom_from_res(res, px1_m, px2_m=None):
     )
 
 
+def _mask_overlay(mask, canvas, s, alpha=0.35):
+    """按与 canvas 严格相同的整数下采样步长生成 RGBA 掩膜叠层，避免坐标缩放偏移。"""
+    s_c = max(1, int(round(s)))
+    hc, wc = canvas.shape[:2]
+    m_arr = np.asarray(mask, dtype=np.float64)
+    if hc * s_c <= m_arr.shape[0] and wc * s_c <= m_arr.shape[1]:
+        mc = m_arr[:hc * s_c, :wc * s_c].reshape(hc, s_c, wc, s_c).mean(axis=(1, 3))
+    else:
+        mc = m_arr[:hc, :wc]
+    ov = np.zeros((hc, wc, 4), dtype=np.float64)
+    ov[mc > 0.25] = [1.0, 0.15, 0.15, float(alpha)]
+    return ov
+
+
 def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, spline=None):
     """生成 2x2 标定体检图（2D 环叠图 / q-χ Cake / 1D 径向谱 / 参数 QA 卡片）并保存。"""
     from matplotlib.patches import Circle
@@ -258,11 +272,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
     vlo, vhi = np.percentile(fin, [5.0, 99.2]) if fin.size else (0.0, 1.0)
     ax_img.imshow(c_disp, origin="upper", cmap="gray", vmin=float(vlo), vmax=float(vhi))
     if mask is not None and np.asarray(mask).shape == arr.shape:
-        mc, _, _, _ = to_canvas(np.asarray(mask, dtype=np.float64), max_side=max(canvas.shape))
-        ov = np.zeros((*mc.shape, 4), dtype=np.float64)
-        m_b = mc > 0.25
-        ov[m_b] = [1.0, 0.15, 0.15, 0.35]
-        ax_img.imshow(ov, origin="upper")
+        ax_img.imshow(_mask_overlay(mask, canvas, s, alpha=0.35), origin="upper")
     if "cx" in res and "cy" in res and "D_px" in res and "tilt_on" in res:
         cx_nat, cy_nat, D_nat = float(res["cx"]), float(res["cy"]), float(res["D_px"])
         cx_c, cy_c, D_c = cx_nat / max(s, 1.0), cy_nat / max(s, 1.0), D_nat / max(s, 1.0)

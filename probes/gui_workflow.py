@@ -57,7 +57,14 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 import theme
 from auto_mask import build_auto_mask
-from cake_report import _geom_from_res, compute_cake, draw_cake, export_diagnostic_figure, score_cake_profile
+from cake_report import (
+    _geom_from_res,
+    _mask_overlay,
+    compute_cake,
+    draw_cake,
+    export_diagnostic_figure,
+    score_cake_profile,
+)
 from confidence_map import evaluate_confidence
 from custom_phase import load_and_register_phase
 from gui_solver import load_any, load_mask_file, sniff_meta
@@ -998,10 +1005,7 @@ class WorkflowWindow(QMainWindow):
         vlo, vhi = np.percentile(fin, [5.0, 99.2]) if fin.size else (0.0, 1.0)
         self.ax_2d.imshow(disp, origin="upper", cmap="gray", vmin=float(vlo), vmax=float(vhi))
         if mask is not None and np.asarray(mask).shape == img.shape:
-            mc, _, _, _ = to_canvas(np.asarray(mask, dtype=np.float64), max_side=max(canvas.shape))
-            ov = np.zeros((*mc.shape, 4), dtype=np.float64)
-            ov[mc > 0.25] = [1.0, 0.15, 0.15, 0.35]
-            self.ax_2d.imshow(ov, origin="upper")
+            self.ax_2d.imshow(_mask_overlay(mask, canvas, s, alpha=0.35), origin="upper")
         if cx_nat is not None and cy_nat is not None and D_px is not None and lam_A is not None:
             cx_c = (float(cx_nat) + 0.5) / s - 0.5
             cy_c = (float(cy_nat) + 0.5) / s - 0.5
