@@ -1911,7 +1911,10 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
             az_cov = az_res.get("coverage", 1.0)
             is_part = az_res.get("is_partial_arc", False)
             cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
-            conf = evaluate_confidence(m=m_, ps=float(res[1][6]),
+            ps_for_conf = float(res[1][6])
+            if mf_score is not None and np.isfinite(mf_score) and m_ >= 4:
+                ps_for_conf = max(ps_for_conf, float(mf_score))
+            conf = evaluate_confidence(m=m_, ps=ps_for_conf,
                                        az_cov=az_cov, cv_ratio=cv_ratio)
         except Exception:
             pass

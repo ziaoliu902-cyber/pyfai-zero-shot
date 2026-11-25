@@ -112,6 +112,63 @@ def draw_cake(ax, cake_dict, qs=None, title="q-χ 蛋糕展开图"):
     ax.set_title(title, fontsize=9)
 
 
+def score_cake_profile(q_axis, prof_1d, qs, I_rel=None):
+    """SNIP 扣背底后评估 1D Cake 积分谱与理论峰位的匹配度及峰位中位偏差。
+
+    返回 dict(ps_refined, dq_med, n_peak_hit)。
+    """
+    q_arr = np.asarray(q_axis, dtype=np.float64)
+    p_arr = np.asarray(prof_1d, dtype=np.float64)
+    fin = np.isfinite(q_arr) & np.isfinite(p_arr)
+    q_v = q_arr[fin]
+    y_v = p_arr[fin]
+    qs_arr = np.asarray(qs, dtype=np.float64) if qs is not None else np.array([], dtype=np.float64)
+    if len(q_v) < 16 or len(qs_arr) < 2:
+        return dict(ps_refined=0.0, dq_med=float("nan"), n_peak_hit=0)
+
+    from weak_ring import snip_background
+
+    bg = snip_background(y_v, max_half_win=max(12, len(y_v) // 20))
+    obs = np.clip(y_v - bg, 0.0, None)
+
+    in_range = (qs_arr >= float(q_v[0])) & (qs_arr <= float(q_v[-1]))
+    if not in_range.any():
+        return dict(ps_refined=0.0, dq_med=float("nan"), n_peak_hit=0)
+
+    q_in = qs_arr[in_range]
+    if I_rel is not None and len(I_rel) == len(qs_arr):
+        w_in = np.sqrt(np.maximum(np.asarray(I_rel, dtype=np.float64)[in_range], 0.0))
+    else:
+        w_in = np.ones(len(q_in), dtype=np.float64)
+
+    dq_step = float(np.median(np.diff(q_v))) if len(q_v) > 1 else 0.01
+    sigma_q = max(0.015, 2.5 * dq_step)
+    tmpl = np.zeros_like(q_v)
+    for q0, wk in zip(q_in, w_in):
+        tmpl += float(wk) * np.exp(-0.5 * ((q_v - float(q0)) / sigma_q) ** 2)
+
+    obs_c = obs - float(np.mean(obs))
+    tmpl_c = tmpl - float(np.mean(tmpl))
+    denom = float(np.sqrt(np.sum(obs_c ** 2) * np.sum(tmpl_c ** 2)))
+    ps_refined = float(np.clip(np.sum(obs_c * tmpl_c) / denom, -1.0, 1.0)) if denom > 1e-12 else 0.0
+
+    max_obs = float(np.max(obs)) if obs.size > 0 else 0.0
+    dqs = []
+    if max_obs > 0.0:
+        for q0 in q_in:
+            win = np.abs(q_v - float(q0)) <= 0.05
+            if not win.any():
+                continue
+            sub_idx = np.flatnonzero(win)
+            loc_pos = int(np.argmax(obs[sub_idx]))
+            pk_val = float(obs[sub_idx[loc_pos]])
+            if pk_val > 0.05 * max_obs:
+                dqs.append(abs(float(q_v[sub_idx[loc_pos]]) - float(q0)))
+
+    dq_med = float(np.median(dqs)) if dqs else float("nan")
+    return dict(ps_refined=ps_refined, dq_med=dq_med, n_peak_hit=len(dqs))
+
+
 def _geom_from_res(res, px1_m, px2_m=None):
     sol = res["sol"]
     s = float(res.get("s", 1))
@@ -174,11 +231,18 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
                              fwd=fwd_sp, nsec=36, win=6.0, mass_rel=0.10,
                              bump=1.5, suspect_tol=5e-3, min_gap=14.0)
             if tf_sp is not None and tf_sp["nrings"] >= 4 and tf_sp["rms5"] < 0.006:
-                dist_m = float(tf_sp["dist"])
-                poni1_m = float(tf_sp["poni1"])
-                poni2_m = float(tf_sp["poni2"])
-                rot1 = float(tf_sp["rot1"])
-                rot2 = float(tf_sp["rot2"])
+                if float(tf_sp.get("imp", 0.0)) >= 0.15:
+                    dist_m = float(tf_sp["dist"])
+                    poni1_m = float(tf_sp["poni1"])
+                    poni2_m = float(tf_sp["poni2"])
+                    rot1 = float(tf_sp["rot1"])
+                    rot2 = float(tf_sp["rot2"])
+                elif "dist3" in tf_sp:
+                    dist_m = float(tf_sp["dist3"])
+                    poni1_m = float(tf_sp["poni1_3"])
+                    poni2_m = float(tf_sp["poni2_3"])
+                    rot1 = 0.0
+                    rot2 = 0.0
         except Exception:
             pass
 
@@ -233,10 +297,33 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
 
     # 4. 参数 QA 摘要卡片
     ax_card.axis("off")
-    conf = res.get("confidence") or {}
+    from torchfai.phases import PHASES
+    i_rel = PHASES[phase][1] if phase and phase in PHASES else None
+    sc_cake = score_cake_profile(q_1d, prof_1d, qs, I_rel=i_rel) if len(qs) >= 2 else dict(
+        ps_refined=0.0, dq_med=float("nan"), n_peak_hit=0
+    )
+    ps_ref = float(sc_cake["ps_refined"])
+    dq_med = float(sc_cake["dq_med"])
+    n_hit = int(sc_cake["n_peak_hit"])
+
     m_v = res.get("m", int(sol[3]) if len(sol) > 3 else 0)
     rms_v = res.get("rms", float(sol[4]) if len(sol) > 4 else 0.0)
     ps_v = res.get("ps", float(sol[6]) if len(sol) > 6 else 0.0)
+    ps_eff = max(ps_v, ps_ref) if (n_hit >= 3 and np.isfinite(ps_ref)) else ps_v
+
+    conf = res.get("confidence") or {}
+    try:
+        from confidence_map import evaluate_confidence
+        cv_res = res.get("cv")
+        cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
+        conf = evaluate_confidence(
+            m=m_v, ps=ps_eff,
+            az_cov=res.get("az_coverage", 1.0),
+            cv_ratio=cv_ratio,
+        )
+    except Exception:
+        pass
+
     nat_flag = res.get("native_2d", res.get("native", False))
     tf_obj = res.get("tilt_ref") or res.get("tf")
     tilt_ok = bool((isinstance(tf_obj, dict) and tf_obj.get("applied")) or res.get("tilt_on"))
@@ -248,11 +335,15 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
         f"Beam Center  : cx={cx_nat:.2f} px, cy={cy_nat:.2f} px (native)",
         f"PONI         : p1={poni1_m * 1000:.3f} mm, p2={poni2_m * 1000:.3f} mm",
         f"Tilt (rot1/2): {rot1 * 1e3:+.2f} / {rot2 * 1e3:+.2f} mrad",
-        f"Matched m    : {m_v} | rms={rms_v:.3f} px | ps={ps_v:.3f}",
+        f"Matched m    : {m_v} | rms={rms_v:.3f} px | ps={ps_v:.3f} (refined={ps_ref:.3f})",
+    ]
+    if np.isfinite(dq_med):
+        lines.append(f"Peak |Δq| med: {dq_med:.4f} Å⁻¹ ({n_hit} rings)")
+    lines.extend([
         f"Confidence   : {conf.get('tier', 'N/A')} ({badge_txt})",
         f"Az Coverage  : {res.get('az_coverage', 1.0) * 100:.0f}%",
         f"Refinement   : native_2d={nat_flag} | tilt_ok={tilt_ok}",
-    ]
+    ])
     ax_card.text(0.04, 0.92, "\n".join(lines), va="top", ha="left",
                  fontfamily=["Microsoft YaHei", "SimHei", "DejaVu Sans"], fontsize=9.5,
                  bbox=dict(boxstyle="round,pad=0.6", fc="#f8f9fa", ec="#bdc3c7"))

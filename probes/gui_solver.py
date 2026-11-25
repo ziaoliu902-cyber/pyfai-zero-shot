@@ -1556,15 +1556,18 @@ class Win(QMainWindow):
         ps_val = float(res['sol'][6])
         cv_res = res.get("cv")
         cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
+        mf_val = res.get("mf_score")
+        ps_for_conf = ps_val
+        if mf_val is not None and np.isfinite(mf_val) and m_val >= 4:
+            ps_for_conf = max(ps_for_conf, float(mf_val))
         from confidence_map import evaluate_confidence
-        conf_eval = evaluate_confidence(m=m_val, ps=ps_val,
+        conf_eval = evaluate_confidence(m=m_val, ps=ps_for_conf,
                                         az_cov=res.get("az_coverage", 1.0),
                                         cv_ratio=cv_ratio)
         if conf_eval["tier"] == "HIGH":
             self.st.setValue("mem_cx", float(res["cx"]))
             self.st.setValue("mem_cy", float(res["cy"]))
             self.st.setValue("mem_D_mm", float(D_mm))
-        mf_val = res.get("mf_score")
         mf_str = f"  mf={mf_val:.3f}" if mf_val is not None else ""
         lines = [
             f"物相: {res['ph']}",
@@ -1726,7 +1729,11 @@ class Win(QMainWindow):
                 cv_res = res.get("cv")
                 cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
                 az_cov = res.get("az_coverage", 1.0)
-                draw_confidence_map(self.ax_conf, m=m_val, ps=ps_val, az_cov=az_cov,
+                mf_val = res.get("mf_score")
+                ps_for_conf = ps_val
+                if mf_val is not None and np.isfinite(mf_val) and m_val >= 4:
+                    ps_for_conf = max(ps_for_conf, float(mf_val))
+                draw_confidence_map(self.ax_conf, m=m_val, ps=ps_for_conf, az_cov=az_cov,
                                     cv_ratio=cv_ratio, theme_name=self.theme_name)
                 self.fig_conf.tight_layout()
                 self.cv_conf.draw_idle()
