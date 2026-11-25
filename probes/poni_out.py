@@ -314,9 +314,10 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
                         p0=(dist, poni1, poni2, rot1, rot2), dist0=dist0,
                         poni1_0=poni1_0, poni2_0=poni2_0)
     return dict(dist=dist, poni1=poni1, poni2=poni2, rot1=rot1, rot2=rot2,
-                rot3=0.0, rms5=rms5, rms3=rms3, imp=imp, npts=npts,
-                nrings=nrings, tilt_deg=float(np.hypot(rot1, rot2)
-                                              * 180 / np.pi))
+                rot3=0.0, dist3=float(x3[0]), poni1_3=float(x3[1]),
+                poni2_3=float(x3[2]), rms5=rms5, rms3=rms3, imp=imp,
+                npts=npts, nrings=nrings,
+                tilt_deg=float(np.hypot(rot1, rot2) * 180 / np.pi))
 
 
 def distortion_red(do, px1, px2, folds=6, seed=0):

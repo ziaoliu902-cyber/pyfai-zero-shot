@@ -1764,9 +1764,22 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                         tf["applied"] = bool(ok_tf)
                         tilt_ref = tf
                         if ok_tf:
+                            use_5p = (float(tf.get("imp", 0.0)) >= 0.15)
+                            if not use_5p and "dist3" in tf:
+                                tf["dist"] = float(tf["dist3"])
+                                tf["poni1"] = float(tf["poni1_3"])
+                                tf["poni2"] = float(tf["poni2_3"])
+                                tf["rot1"] = 0.0
+                                tf["rot2"] = 0.0
+                                tf["tilt_deg"] = 0.0
+                                tf["mode"] = "x3"
+                            else:
+                                tf["mode"] = "x5"
+                            p2_c = float(tf.get("poni2_3", tf["poni2"]))
+                            p1_c = float(tf.get("poni1_3", tf["poni1"]))
                             sol = tuple([
-                                tf["poni2"] / (px2_nat * s) - 0.5,
-                                tf["poni1"] / (px1_nat * s) - 0.5,
+                                p2_c / (px2_nat * s) - 0.5,
+                                p1_c / (px1_nat * s) - 0.5,
                                 tf["dist"] / px_c,
                                 *sol[3:],
                             ])

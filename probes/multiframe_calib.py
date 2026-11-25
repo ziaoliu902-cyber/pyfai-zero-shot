@@ -105,7 +105,7 @@ def calibrate_multiframe(paths, px1_m, lam=None, px2_m=None, phases=None,
     kw_use = dict(solve_kw) if solve_kw else dict(cascade=True, auto_center=False, refine_2d=False)
     res_mean = solve_image(
         img_stack, px1_f, px2_m=px2_f, lam=lam_use, phases=ph_use,
-        solve_kw=kw_use,
+        solve_kw=kw_use, tilt_refine=False,
     )
     if not res_mean:
         return dict(

@@ -192,11 +192,13 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
                         px1=px1_f, px2=px2_f, lam_A=lam, mask=mask)
     draw_cake(ax_cake, cake, qs=qs, title="q-χ 蛋糕展开图（环平直即无倾角残差）")
 
-    # 3. 1D 径向谱
-    _, prof, bp, _ = ring_radii(canvas, cx_c, cy_c)
-    r_ax = (np.arange(len(prof), dtype=np.float64) + 0.5) * float(bp)
-    q_1d = 4.0 * np.pi * np.sin(0.5 * np.arctan(r_ax / max(D_c, 1e-6))) / lam
-    ax_1d.plot(q_1d, np.log1p(np.clip(prof, 0.0, None)), color="#3498db", lw=1.0)
+    # 3. 1D 径向谱（从已校正倾角与像素各向异性的 Cake 沿方位角均值导出）
+    q_1d = cake["q_axis"]
+    prof_1d = np.nanmean(cake["cake"], axis=0)
+    valid_1d = np.isfinite(prof_1d)
+    if valid_1d.any():
+        ax_1d.plot(q_1d[valid_1d], np.log1p(np.clip(prof_1d[valid_1d], 0.0, None)),
+                   color="#3498db", lw=1.0)
     for q0 in qs:
         if q_1d[0] <= q0 <= q_1d[-1]:
             ax_1d.axvline(float(q0), color="#e74c3c", lw=0.75, ls="--", alpha=0.7)
