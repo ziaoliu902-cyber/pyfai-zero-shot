@@ -16,10 +16,18 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 
-WIZARD = os.environ.get("WIZARD", "1") != "0" or "wizard" in sys.argv
-NAME = "DiffBlindWizard" if WIZARD else "PyFAI-Blind"
-ENTRY = os.path.join(ROOT, "probes",
-                     "gui_wizard.py" if WIZARD else "gui_solver.py")
+TARGET = "workflow" if "workflow" in sys.argv else (
+    "expert" if ("expert" in sys.argv or os.environ.get("WIZARD", "1") == "0") else "wizard"
+)
+if TARGET == "workflow":
+    NAME = "PyFAI-Workflow"
+    ENTRY = os.path.join(ROOT, "probes", "gui_workflow.py")
+elif TARGET == "expert":
+    NAME = "PyFAI-Blind"
+    ENTRY = os.path.join(ROOT, "probes", "gui_solver.py")
+else:
+    NAME = "DiffBlindWizard"
+    ENTRY = os.path.join(ROOT, "probes", "gui_wizard.py")
 
 EXCLUDES = [
     # 深度学习/科学全家桶——本项目零使用(torchfai 名字唬人,实为纯 numpy)
@@ -65,6 +73,13 @@ CMD = [sys.executable, "-m", "PyInstaller",
        "--collect-submodules", "pyFAI.ext",
        "--collect-submodules", "pyFAI.engines",
        ]
+for mod in [
+    "auto_mask", "cake_report", "custom_phase", "batch_parallel",
+    "multiframe_calib", "confidence_map", "weak_ring", "geomfit",
+    "refine5", "split_half_cv", "azimuthal_stacking", "poni_out",
+    "theme", "gui_solver", "solver_core",
+]:
+    CMD += ["--hidden-import", mod]
 for e in EXCLUDES:
     CMD += ["--exclude-module", e]
 CMD.append(ENTRY)

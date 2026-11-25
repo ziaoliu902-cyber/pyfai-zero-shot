@@ -1129,7 +1129,49 @@ class WorkflowWindow(QMainWindow):
         self.status_lbl.setText("已重置，请重新导入数据。")
 
 
+def _selftest():
+    """打包自检：无头验证 frozen exe 内全部关键依赖与流程图主窗口构建。"""
+    log = os.path.join(os.environ.get("TEMP", "."), "PyFAI-Workflow-selftest.log")
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        import torchfai.phases
+        import fabio
+        import pyFAI.geometry
+        import pyFAI.detectors
+        import matplotlib
+        from PyQt5.QtWidgets import QApplication
+        import auto_mask
+        import cake_report
+        import confidence_map
+        import custom_phase
+        import multiframe_calib
+        import solver_core
+
+        assert len(torchfai.phases.phase_qs("Al2O3")) >= 5
+        app = QApplication.instance() or QApplication([])
+        theme.apply_app(app, "light")
+        win = WorkflowWindow()
+        assert len(win.cards) == 5
+        msg = (
+            f"SELFTEST_OK phases={len(torchfai.phases.PHASE_NAMES)} "
+            f"cards={len(win.cards)} pyFAI={getattr(pyFAI, 'version', 'ok')}"
+        )
+        with open(log, "w", encoding="utf-8") as f:
+            f.write(msg + "\n")
+        if sys.stdout is not None:
+            print(msg, flush=True)
+    except Exception:
+        with open(log, "w", encoding="utf-8") as f:
+            traceback.print_exc(file=f)
+        if sys.stderr is not None:
+            traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
+    if "--selftest" in sys.argv:
+        _selftest()
+        return
     app = QApplication(sys.argv)
     theme.apply_app(app, "light")
     win = WorkflowWindow()
