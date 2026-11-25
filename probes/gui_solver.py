@@ -936,6 +936,8 @@ class Win(QMainWindow):
         self.last_check = None     # 最近自检判语(A3),报告复用
         self.img_path = None       # 当前图像路径(A3 报告文件名)
         self.mask = None          # bool 数组，True=无效像素
+        self._brush_cids = []     # matplotlib 鼠标绘制 mask 回调句柄
+        self._brush_down = None   # 当前鼠标键（1=涂抹, 3=擦除）
         self.contrast_pct = 995   # 显示上限分位（99.5）
         self.worker = None
         # 环不足补救(2026-11-06 主窗口版;2026-11-07 抽取 EscalationFlow
@@ -1045,11 +1047,21 @@ class Win(QMainWindow):
         self.b_mask.clicked.connect(self.load_mask)
         self.b_mask.setToolTip("无效像素掩膜：束流挡盘/模块缝/遮挡/坏点\n"
                                "支持 .npy / .h5(.hdf5) / .edf/.tif/.cbf（非零=无效）")
+        self.b_automask = QPushButton("🪄 自动 Mask")
+        self.b_automask.clicked.connect(self.auto_build_mask)
+        self.b_automask.setToolTip("自动识别模块缝、坏点/热像素与束流挡盘阴影")
+        self.b_brush = QPushButton("🖌 画/擦 Mask")
+        self.b_brush.setCheckable(True)
+        self.b_brush.toggled.connect(self.toggle_mask_brush)
+        self.b_brush.setToolTip("开启后左键在画布涂抹 mask、右键擦除 mask（需先退出缩放/平移模式）")
         self.b_maskclear = QPushButton("清除 mask")
         self.b_maskclear.clicked.connect(self.clear_mask)
         self.b_maskinv = QPushButton("反转 mask")
         self.b_maskinv.clicked.connect(self.invert_mask)
         self.b_maskinv.setToolTip("如果你的 mask 是「1=有效」而不是「1=无效」，点这个翻转")
+        self.b_add_phase = QPushButton("➕ 导入标样(.D/.cif)…")
+        self.b_add_phase.clicked.connect(self.import_custom_phase)
+        self.b_add_phase.setToolTip("导入 pyFAI .D 晶面间距表或 .cif 晶体结构，自动计算理论衍射环并加入相库")
         self.b_poni = QPushButton("导出 .poni"); self.b_poni.clicked.connect(self.export_poni)
         self.b_poni.setEnabled(False)
         self.b_copy = QPushButton("复制结果"); self.b_copy.clicked.connect(self.copy_result)
@@ -1062,16 +1074,40 @@ class Win(QMainWindow):
         self.b_report.clicked.connect(self.export_report)
         self.b_report.setEnabled(False)
         self.b_report.setToolTip("Markdown + PDF：参数表/环叠图/自检判语/σ/警告旗")
+        self.b_diag_fig = QPushButton("🖼 导出体检图…")
+        self.b_diag_fig.clicked.connect(self.export_diagnostic_fig)
+        self.b_diag_fig.setEnabled(False)
+        self.b_diag_fig.setToolTip("导出 2x2 标定诊断体检图（2D 叠环 / q-χ Cake / 1D 谱 / QA 参数卡片）")
+        self.b_multiframe = QPushButton("🧩 多帧联合标定…")
+        self.b_multiframe.clicked.connect(self.run_multiframe_dialog)
+        self.b_multiframe.setToolTip("选入多帧同工位图像：自动去暗场 + MAD 剔离群帧 + 叠图五参联合出 .poni")
         self.b_shared_tilt = QPushButton("🔗 变距共享倾角…")
         self.b_shared_tilt.clicked.connect(self.run_shared_tilt_dialog)
         self.b_shared_tilt.setToolTip("多距离导轨扫描：多帧共享倾角 (rot1, rot2)，逐帧解距离与束心")
         self.b_az_stack = QPushButton("🔄 残弧方位角堆叠…")
         self.b_az_stack.clicked.connect(self.run_az_stack_dialog)
         self.b_az_stack.setToolTip("多帧部分残弧对齐堆叠合成虚拟全环，打破单帧欠定简并")
-        for b in (self.b_run, self.b_check, self.b_mask, self.b_maskclear,
-                  self.b_maskinv, self.b_poni, self.b_copy, self.b_unc,
-                  self.b_report, self.b_shared_tilt, self.b_az_stack):
-            run_l.addWidget(b)
+
+        row_mask1 = QHBoxLayout(); row_mask1.setContentsMargins(0, 0, 0, 0)
+        row_mask1.addWidget(self.b_mask); row_mask1.addWidget(self.b_automask)
+        row_mask2 = QHBoxLayout(); row_mask2.setContentsMargins(0, 0, 0, 0)
+        row_mask2.addWidget(self.b_brush); row_mask2.addWidget(self.b_maskclear); row_mask2.addWidget(self.b_maskinv)
+        row_out1 = QHBoxLayout(); row_out1.setContentsMargins(0, 0, 0, 0)
+        row_out1.addWidget(self.b_poni); row_out1.addWidget(self.b_copy)
+        row_out2 = QHBoxLayout(); row_out2.setContentsMargins(0, 0, 0, 0)
+        row_out2.addWidget(self.b_report); row_out2.addWidget(self.b_diag_fig)
+
+        run_l.addWidget(self.b_run)
+        run_l.addWidget(self.b_check)
+        run_l.addLayout(row_mask1)
+        run_l.addLayout(row_mask2)
+        run_l.addWidget(self.b_add_phase)
+        run_l.addLayout(row_out1)
+        run_l.addWidget(self.b_unc)
+        run_l.addLayout(row_out2)
+        run_l.addWidget(self.b_multiframe)
+        run_l.addWidget(self.b_shared_tilt)
+        run_l.addWidget(self.b_az_stack)
         g_run.setLayout(run_l)
 
         self.b_theme = QPushButton("🌙 暗色主题")
@@ -1118,9 +1154,16 @@ class Win(QMainWindow):
         draw_confidence_map(self.ax_conf, title="二维置信度空间 (m vs ps)")
         self.fig_conf.tight_layout()
 
+        self.fig_cake = Figure(figsize=(3.4, 2.6))
+        self.cv_cake = FigureCanvasQTAgg(self.fig_cake)
+        self.ax_cake = self.fig_cake.add_subplot(111)
+        self.ax_cake.set_title("q-χ 蛋糕展开图", fontsize=9)
+        self.fig_cake.tight_layout()
+
         self.tab_plot = QTabWidget()
         self.tab_plot.addTab(self.cv2, "📈 径向谱")
         self.tab_plot.addTab(self.cv_conf, "🎯 置信度空间")
+        self.tab_plot.addTab(self.cv_cake, "🍰 Cake 展开图")
 
         right_l = QVBoxLayout()
         right_l.addWidget(self.txt, 3)
@@ -1179,12 +1222,16 @@ class Win(QMainWindow):
         axes_to_style = [self.ax, self.ax2]
         if hasattr(self, "ax_conf") and self.ax_conf is not None:
             axes_to_style.append(self.ax_conf)
+        if hasattr(self, "ax_cake") and self.ax_cake is not None:
+            axes_to_style.append(self.ax_cake)
         for ax in axes_to_style:
             theme.restyle_axes(ax, name)
         self.cv.draw_idle()
         self.cv2.draw_idle()
         if hasattr(self, "cv_conf"):
             self.cv_conf.draw_idle()
+        if hasattr(self, "cv_cake"):
+            self.cv_cake.draw_idle()
         self.b_theme.setText("☀️ 亮色主题" if name == "dark" else "🌙 暗色主题")
         self.st.setValue("theme", name)
 
@@ -1263,6 +1310,8 @@ class Win(QMainWindow):
         self.b_check.setEnabled(False)
         self.b_unc.setEnabled(False)
         self.b_report.setEnabled(False)
+        if hasattr(self, "b_diag_fig"):
+            self.b_diag_fig.setEnabled(False)
 
     # ---------- 事件 ----------
     def open_batch(self):
@@ -1304,6 +1353,8 @@ class Win(QMainWindow):
         self.b_poni.setEnabled(False)
         self.b_unc.setEnabled(False)
         self.b_report.setEnabled(False)
+        if hasattr(self, "b_diag_fig"):
+            self.b_diag_fig.setEnabled(False)
         self.res = None
         self.unc = None
         meta = sniff_meta(p)
@@ -1338,6 +1389,16 @@ class Win(QMainWindow):
         self.ax.clear()
         im = np.clip(self.img, *np.percentile(self.img, [2, self.contrast_pct / 10.0]))
         self.ax.imshow(im, cmap="gray", origin="upper")
+        if (self.mask is not None and self.mask.shape == self.img.shape
+                and self.mask.any()):
+            H_m, W_m = self.img.shape
+            step = max(1, int(np.ceil(max(H_m, W_m) / 1024)))
+            ms = self.mask[::step, ::step]
+            ov = np.zeros((*ms.shape, 4), dtype=np.float32)
+            ov[ms] = [1.0, 0.15, 0.15, 0.38]
+            self.ax.imshow(ov, origin="upper",
+                           extent=[-0.5, W_m - 0.5, H_m - 0.5, -0.5],
+                           interpolation="nearest")
         self.ax.set_title("校正图（2–99.5% 显示）" if self.spline
                           else "原始图（2–99.5% 显示）")
         if res is not None:
@@ -1474,6 +1535,8 @@ class Win(QMainWindow):
         self.b_poni.setEnabled(True)
         self.b_copy.setEnabled(True)
         self.b_check.setEnabled(True)
+        if hasattr(self, "b_diag_fig"):
+            self.b_diag_fig.setEnabled(True)
         self.st.setValue("px", self.e_px.text())
         self.st.setValue("lam", self._lam_text())
         px_um = float(self.e_px.text() or 172.0)
@@ -1658,11 +1721,33 @@ class Win(QMainWindow):
             # 更新二维置信度空间图
             if hasattr(self, "ax_conf"):
                 from confidence_map import draw_confidence_map
+                m_val = int(res["sol"][3])
+                ps_val = float(res["sol"][6])
+                cv_res = res.get("cv")
+                cv_ratio = cv_res.get("cv_ratio") if isinstance(cv_res, dict) else None
                 az_cov = res.get("az_coverage", 1.0)
                 draw_confidence_map(self.ax_conf, m=m_val, ps=ps_val, az_cov=az_cov,
                                     cv_ratio=cv_ratio, theme_name=self.theme_name)
                 self.fig_conf.tight_layout()
                 self.cv_conf.draw_idle()
+        except Exception:
+            pass
+
+        # 更新 q-χ Cake 展开图页签
+        try:
+            if hasattr(self, "ax_cake") and self.img is not None:
+                import theme
+                from cake_report import compute_cake, draw_cake, _geom_from_res
+                px_m_nat = float(self.e_px.text() or 172.0) * 1e-6
+                dist_m, poni1_m, poni2_m, rot1, rot2 = _geom_from_res(res, px_m_nat)
+                cake = compute_cake(
+                    self.img, dist_m, poni1_m, poni2_m, rot1=rot1, rot2=rot2,
+                    px1=px_m_nat, lam_A=float(res["lam"]), mask=self.mask)
+                draw_cake(self.ax_cake, cake, qs=phase_qs(res["ph"]),
+                          title=f"q-χ 展开图 · {res['ph']}")
+                theme.restyle_axes(self.ax_cake, self.theme_name)
+                self.fig_cake.tight_layout()
+                self.cv_cake.draw_idle()
         except Exception:
             pass
 
@@ -1779,6 +1864,8 @@ class Win(QMainWindow):
                                 f"（{frac:.1f}% 像素无效）")
             self.b_maskclear.setEnabled(True)
             self._invalidate_res("mask")
+            if self.img is not None:
+                self.show_img()
         except Exception as e:
             self.status.setText(f"mask 载入失败：{e}")
 
@@ -1787,6 +1874,8 @@ class Win(QMainWindow):
         self.b_maskclear.setEnabled(False)
         self.status.setText("mask 已清除")
         self._invalidate_res("mask")
+        if self.img is not None:
+            self.show_img()
 
     def invert_mask(self):
         """mask 约定不符时一键翻转（1=有效 → 1=无效）。"""
@@ -1796,6 +1885,188 @@ class Win(QMainWindow):
         self.mask = ~self.mask
         self.status.setText(f"mask 已反转（现在 {self.mask.mean()*100:.1f}% 像素无效）")
         self._invalidate_res("mask")
+        self.show_img()
+
+    def auto_build_mask(self):
+        """自动识别模块缝、坏点/热像素与束流挡盘阴影，生成无效像素 mask。"""
+        if self.img is None:
+            self.status.setText("请先打开图像")
+            return
+        from auto_mask import build_auto_mask
+        cx = self.res["cx"] if self.res is not None else None
+        cy = self.res["cy"] if self.res is not None else None
+        m, st = build_auto_mask(self.img, cx=cx, cy=cy)
+        if self.mask is not None and self.mask.shape == m.shape:
+            self.mask = self.mask | m
+        else:
+            self.mask = m
+        self.b_maskclear.setEnabled(bool(self.mask.any()))
+        self.status.setText(
+            f"自动 mask 完成：缝 {st['n_gap']} + 坏点 {st['n_bad']} + "
+            f"束挡 {st['n_beamstop']} = {int(self.mask.sum())} 像素 ({self.mask.mean()*100:.1f}%)")
+        self._invalidate_res("mask")
+        self.show_img()
+
+    def toggle_mask_brush(self, checked):
+        """开启或关闭画布交互画/擦 mask 模式。"""
+        for cid in list(self._brush_cids):
+            try:
+                self.cv.mpl_disconnect(cid)
+            except Exception:
+                pass
+        self._brush_cids.clear()
+        self._brush_down = None
+        if checked:
+            if self.img is None:
+                self.b_brush.blockSignals(True)
+                self.b_brush.setChecked(False)
+                self.b_brush.blockSignals(False)
+                self.status.setText("请先打开图像再使用画笔")
+                return
+            self._brush_cids = [
+                self.cv.mpl_connect("button_press_event", self._on_brush_press),
+                self.cv.mpl_connect("motion_notify_event", self._on_brush_move),
+                self.cv.mpl_connect("button_release_event", self._on_brush_release),
+            ]
+            self.status.setText("画笔已开启：左键涂抹 mask，右键擦除（先取消工具栏缩放/平移）")
+        else:
+            self.status.setText("画笔模式已关闭")
+
+    def _on_brush_press(self, ev):
+        if getattr(self.tb, "mode", ""):
+            return
+        if ev.inaxes != self.ax or ev.xdata is None or ev.ydata is None:
+            return
+        if ev.button in (1, 3):
+            self._brush_down = int(ev.button)
+            self._paint_brush(ev.xdata, ev.ydata, erase=(ev.button == 3))
+
+    def _on_brush_move(self, ev):
+        if self._brush_down not in (1, 3):
+            return
+        if ev.inaxes != self.ax or ev.xdata is None or ev.ydata is None:
+            return
+        self._paint_brush(ev.xdata, ev.ydata, erase=(self._brush_down == 3))
+
+    def _on_brush_release(self, ev):
+        if self._brush_down is not None:
+            self._brush_down = None
+            self._invalidate_res("mask")
+
+    def _paint_brush(self, x, y, erase=False):
+        if self.img is None:
+            return
+        H, W = self.img.shape
+        if self.mask is None or self.mask.shape != (H, W):
+            self.mask = np.zeros((H, W), dtype=bool)
+        rad = max(8, min(H, W) // 80)
+        y0 = max(0, int(np.floor(y - rad)))
+        y1 = min(H, int(np.ceil(y + rad)) + 1)
+        x0 = max(0, int(np.floor(x - rad)))
+        x1 = min(W, int(np.ceil(x + rad)) + 1)
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        disk = ((yy - y) ** 2 + (xx - x) ** 2) <= (rad * rad)
+        self.mask[y0:y1, x0:x1][disk] = (not erase)
+        self.b_maskclear.setEnabled(bool(self.mask.any()))
+        self.show_img(self.res)
+
+    def import_custom_phase(self):
+        """导入自定义 .D / .cif 标样文件并注册到求解相库。"""
+        p, _ = QFileDialog.getOpenFileName(
+            self, "导入自定义标样 (.D / .cif)",
+            self.st.value("last_dir", "") or "",
+            "标样文件 (*.D *.d *.cif);;所有 (*.*)")
+        if not p:
+            return
+        try:
+            from custom_phase import load_and_register_phase
+            ph_name = load_and_register_phase(p)
+            qs = phase_qs(ph_name)
+            self.status.setText(f"已导入标样：{ph_name}（{len(qs)} 条衍射峰）")
+            self.txt.append(f"\n[标样导入] {ph_name}: {len(qs)} 峰 (q={qs[0]:.3f}~{qs[-1]:.3f} Å⁻¹)")
+            QMessageBox.information(
+                self, "导入成功",
+                f"已注册标样：{ph_name}\n衍射峰数量：{len(qs)}\n后续运行求解会自动参与匹配。")
+        except Exception as exc:
+            QMessageBox.critical(self, "导入标样失败", str(exc))
+
+    def run_multiframe_dialog(self):
+        """多帧同工位自动去暗场 + 离群剔除 + 叠图五参联合标定对话框。"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择同工位多帧图像 (>=2 帧)",
+            self.st.value("last_dir", "") or "",
+            "衍射图 (*.edf *.cbf *.h5 *.hdf5 *.tif *.tiff *.mar* *.img *.png *.jpg);;所有 (*.*)")
+        if not files or len(files) < 2:
+            if files:
+                QMessageBox.warning(self, "提示", "请至少选择 2 帧图像做多帧联合标定！")
+            return
+        from multiframe_calib import calibrate_multiframe
+        px_um = float(self.e_px.text() or 172.0)
+        px_m = px_um * 1e-6
+        lam_val = self._lam_A()
+        self.status.setText(f"正在运行 {len(files)} 帧多帧抗差联合标定…")
+        QApplication.processEvents()
+        try:
+            res_mf = calibrate_multiframe(
+                files, px_m, lam=lam_val, spline=self.spline, n_workers=2)
+        except Exception as exc:
+            QMessageBox.critical(self, "多帧联合标定失败", str(exc))
+            self.status.setText("多帧联合标定异常")
+            return
+        if not res_mf.get("ok"):
+            QMessageBox.warning(self, "多帧联合标定失败", res_mf.get("error", "未知错误"))
+            self.status.setText("多帧联合标定未收敛")
+            return
+
+        msg = (
+            f"【多帧联合标定成功】\n"
+            f"总输入: {res_mf['n_total']} 帧 | 暗场剔除: {res_mf['n_dark']} 帧 | "
+            f"离群剔除: {res_mf['n_outliers']} 帧 | 保留叠图: {res_mf['n_kept']} 帧\n"
+            f"物相: {res_mf['phase']} | 波长: {res_mf['lam_A']:.5f} Å\n"
+            f"距离 D: {res_mf['dist_mm']:.3f} mm\n"
+            f"PONI: ({res_mf['poni1_m']*1000:.3f}, {res_mf['poni2_m']*1000:.3f}) mm\n"
+            f"倾角: rot1={res_mf['rot1']*1e3:+.2f} mrad, rot2={res_mf['rot2']*1e3:+.2f} mrad "
+            f"(合倾角 {res_mf['tilt_deg']:.3f}°)"
+        )
+        self.txt.append("\n" + "=" * 40 + "\n" + msg + "\n" + "=" * 40)
+        self.status.setText(f"多帧联合完成：D={res_mf['dist_mm']:.2f} mm ({res_mf['n_kept']}/{res_mf['n_total']} 帧)")
+        ans = QMessageBox.question(
+            self, "多帧联合标定完成",
+            msg + "\n\n是否将联合结果导出为 .poni 文件？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ans == QMessageBox.Yes:
+            out_p, _ = QFileDialog.getSaveFileName(
+                self, "保存多帧联合 .poni",
+                os.path.join(os.path.dirname(files[0]), "multiframe_joint.poni"),
+                "pyFAI PONI (*.poni)")
+            if out_p:
+                from poni_out import write_poni
+                write_poni(
+                    out_p, res_mf["dist_mm"] / 1000.0,
+                    res_mf["poni1_m"], res_mf["poni2_m"],
+                    res_mf["rot1"], res_mf["rot2"],
+                    res_mf["lam_A"], px_m, px_m, spline=self.spline,
+                    note=f"GUI multiframe joint ({res_mf['n_kept']}/{res_mf['n_total']} frames)")
+                self.status.setText(f"已导出多帧联合 .poni：{out_p}")
+
+    def export_diagnostic_fig(self):
+        """导出 2x2 标定诊断体检图（2D 叠环 / q-χ Cake / 1D 谱 / QA 参数卡片）。"""
+        if self.res is None or self.img is None:
+            return
+        base = os.path.splitext(os.path.basename(
+            getattr(self, "img_path", "") or "diffraction"))[0]
+        p, _ = QFileDialog.getSaveFileName(
+            self, "导出标定体检图", f"{base}_体检图.png",
+            "PNG 图片 (*.png);;PDF 文件 (*.pdf)")
+        if not p:
+            return
+        try:
+            from cake_report import export_diagnostic_figure
+            px_m_nat = float(self.e_px.text() or 172.0) * 1e-6
+            export_diagnostic_figure(p, self.img, self.res, px_m_nat, mask=self.mask)
+            self.status.setText(f"已导出标定体检图：{p}")
+        except Exception:
+            QMessageBox.critical(self, "导出体检图失败", traceback.format_exc(limit=6))
 
     def _on_sens(self, idx):
         import solver_core as _sc
