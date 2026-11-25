@@ -194,7 +194,7 @@ class WorkflowWorker(QThread):
 
     def __init__(self, paths, px1_um, px2_um, lam_A, phase_opt=None,
                  auto_gaps=True, auto_bad=True, auto_bs=True,
-                 ext_mask=None, spline_path=None):
+                 ext_mask=None, spline_path=None, d_ref_mm=None):
         super().__init__()
         self.paths = list(paths)
         self.px1_um = float(px1_um)
@@ -206,6 +206,7 @@ class WorkflowWorker(QThread):
         self.auto_bs = bool(auto_bs)
         self.ext_mask = ext_mask
         self.spline_path = spline_path or None
+        self.d_ref_mm = d_ref_mm
 
     def run(self):
         cur_stage = 1
@@ -275,7 +276,7 @@ class WorkflowWorker(QThread):
                 canvas, s, _, _ = to_canvas(img_work)
                 res_mean = solve_image(
                     img_work, px1_m, lam=lam_u, phases=[ph], px2_m=px2_m,
-                    mask=mask, tilt_refine=False,
+                    mask=mask, tilt_refine=False, d_ref_mm=self.d_ref_mm,
                 )
                 if res_mean is not None:
                     res = res_mean
@@ -302,7 +303,7 @@ class WorkflowWorker(QThread):
                 self.log_line.emit("[步骤3] 启动单帧几何求解…")
                 res = solve_image(
                     img_work, px1_m, lam=self.lam_A, phases=self.phase_opt,
-                    px2_m=px2_m, mask=mask,
+                    px2_m=px2_m, mask=mask, d_ref_mm=self.d_ref_mm,
                 )
                 if not res:
                     raise RuntimeError("求解失败：未能匹配足够衍射环，请检查像素尺寸、波长或改用多帧堆叠。")
@@ -374,6 +375,7 @@ class WorkflowWorker(QThread):
                 m=m_v, ps=ps_eff,
                 az_cov=float(res.get("az_coverage", 1.0)),
                 cv_ratio=cv_ratio,
+                has_d_ref=bool(res.get("d_ref_ok", False)),
             )
             res["confidence"] = conf
             dq_txt = f"{sc['dq_med']:.4f} Å⁻¹" if np.isfinite(sc["dq_med"]) else "N/A"
@@ -640,6 +642,11 @@ class WorkflowWindow(QMainWindow):
         self.cb_phase = QComboBox()
         self._refresh_phase_combo()
         grid.addWidget(self.cb_phase, 3, 1)
+
+        grid.addWidget(QLabel("近似距离 (mm):"), 4, 0)
+        self.e_dref = QLineEdit("")
+        self.e_dref.setPlaceholderText("可选，如 2600（少环/AgBh 消歧用）")
+        grid.addWidget(self.e_dref, 4, 1)
         lay.addLayout(grid)
 
         b_imp = QPushButton("导入自定义标样 (.D / .cif)…")
@@ -765,6 +772,7 @@ class WorkflowWindow(QMainWindow):
         self.img_preview = img0
         self.preview_mask = None
         self.payload = None
+        self.e_dref.clear()
         self.b_exp_poni.setEnabled(False)
         self.b_exp_fig.setEnabled(False)
         self.b_copy_txt.setEnabled(False)
@@ -909,6 +917,10 @@ class WorkflowWindow(QMainWindow):
             lam_A = self._read_lam_A()
             if lam_A is None:
                 raise ValueError("请填写波长 (Å) 或光子能量 (keV)")
+            dref_txt = self.e_dref.text().strip()
+            d_ref_mm = float(dref_txt) if dref_txt else None
+            if d_ref_mm is not None and d_ref_mm <= 0:
+                raise ValueError("近似距离必须 > 0")
         except Exception as exc:
             QMessageBox.warning(self, "参数有误", str(exc))
             self.select_stage(2)
@@ -926,6 +938,7 @@ class WorkflowWindow(QMainWindow):
             auto_bs=self.chk_bs.isChecked(),
             ext_mask=self.ext_mask,
             spline_path=self.spline_path,
+            d_ref_mm=d_ref_mm,
         )
         self.worker.stage_changed.connect(self._on_stage_changed)
         self.worker.log_line.connect(self._log)

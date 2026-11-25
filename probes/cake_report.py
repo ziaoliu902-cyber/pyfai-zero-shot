@@ -330,6 +330,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
             m=m_v, ps=ps_eff,
             az_cov=res.get("az_coverage", 1.0),
             cv_ratio=cv_ratio,
+            has_d_ref=bool(res.get("d_ref_ok", False)),
         )
     except Exception:
         pass

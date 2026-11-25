@@ -26,7 +26,8 @@ matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei",
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
-def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None):
+def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None,
+                        has_d_ref=False):
     """计算当前解在二维置信度空间中的评级与决策建议。
 
     参数：
@@ -35,6 +36,7 @@ def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None):
       max_dev: 最大 2θ 偏差（度），自检残差
       az_cov: 方位角覆盖率 (float, [0, 1])，默认 1.0 (全环)
       cv_ratio: 拆分交叉验证残差比 (m <= 5 时生效)
+      has_d_ref: 是否提供且吻合近似距离先验（消除谐波倍频简并）
 
     返回：
       dict(tier, badge, color, is_identifiable, rationale, recommendation)
@@ -44,7 +46,7 @@ def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None):
     az_cov = float(az_cov) if az_cov is not None and np.isfinite(az_cov) else 1.0
 
     # 1. 基础物理可辨识性判定
-    is_identifiable = (m >= 4) and (az_cov >= 0.40)
+    is_identifiable = ((m >= 4) or (m == 3 and ps >= 0.60 and bool(has_d_ref))) and (az_cov >= 0.40)
 
     # 2. 细分等级
     if az_cov < 0.40:
@@ -53,6 +55,12 @@ def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None):
         color = "#e67e22"  # 橙色
         rationale = f"检测到部分残弧（方位覆盖仅 {az_cov:.0%}），存在束心-距离代偿的客观假解风险。"
         recommendation = "单帧存在数学不可辨识性；建议提供近似距离先验，或启用多帧方位角堆叠功能。"
+    elif m == 3 and ps >= 0.60 and bool(has_d_ref):
+        tier = "HIGH"
+        badge = "🟢 极高置信 (近似距离已消歧)"
+        color = "#27ae60"
+        rationale = f"虽仅匹配 {m} 条完整环，但谱形高度吻合 (ps={ps:.3f} >= 0.60) 且已结合近似距离先验锁定正确谐波阶次。"
+        recommendation = "几何解已消除倍频简并并完成精化，可直接导出标准 .poni 标定文件。"
     elif m == 3 and ps >= 0.60:
         tier = "MEDIUM"
         badge = "🟡 少环/谐波简并 (请核对距离量级)"

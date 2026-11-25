@@ -1579,7 +1579,7 @@ def auto_offset(img):
 def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                 i_rel=None, dbg=False, solve_kw=None, fb_grid=None,
                 mask=None, canvas_side=None, refine5=False, prior=None,
-                px2_m=None, tilt_refine=True):
+                px2_m=None, tilt_refine=True, d_ref_mm=None):
     """R3 单一入口（2026-11-05，18-1104 需求）：画布选择(R1) → 相解 →
     零样本安全 fallback(R2) → 返回统一结果 dict。上层（zoo_run /
     phase_fit / gui_solver / ablation8）一律调本函数，不再自带画布/门控。
@@ -1702,10 +1702,37 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     sol = tuple(sol)
             except Exception:
                 rf5 = None
-        # 高分辨率 2D Taubin 精化（>16M 大图自动降到 2048px 精化，其余跑原生分辨率）
+        # 可选：近似距离先验吸附（消除 AgBh / 层状谐波标样的整数倍距离简并）
+        harmonic_k = None
+        d_ref_val = None
+        try:
+            if d_ref_mm is not None and float(d_ref_mm) > 0:
+                d_ref_val = float(d_ref_mm)
+        except Exception:
+            d_ref_val = None
+        if d_ref_val is not None and res[0] is not None:
+            try:
+                from torchfai.phases import HARMONIC_PHASES
+                if res[0] in HARMONIC_PHASES and m_ <= 6:
+                    d_cur_mm = float(sol[2]) * float(px_c) * 1000.0
+                    if d_cur_mm > 0:
+                        _k = int(round(d_ref_val / d_cur_mm))
+                        if 1 < _k <= 12 and abs(d_ref_val / d_cur_mm - _k) < 0.12 * _k:
+                            sol = tuple([sol[0], sol[1], float(sol[2]) * _k, *sol[3:]])
+                            harmonic_k = _k
+                        else:
+                            _kd = int(round(d_cur_mm / d_ref_val))
+                            if 2 <= _kd <= 12 and abs(d_cur_mm / d_ref_val - _kd) < 0.12 * _kd:
+                                sol = tuple([sol[0], sol[1], float(sol[2]) / _kd, *sol[3:]])
+                                harmonic_k = 1.0 / _kd
+            except Exception:
+                pass
+        # 高分辨率 2D Taubin 精化（>16M 大图自动降到 2048px 精化，其余跑原生分辨率；
+        # m==3 且 ps>=0.60 的高质量完整环也放行 2D 亚像素精化）
         native_2d_ok = False
+        min_m_2d = 3 if (m_ == 3 and float(res[1][6]) >= 0.60) else 4
         if (kw.get("refine_2d", True) and res[0] is not None
-                and float(res[1][6]) > 0.4 and m_ >= 4 and s > 1
+                and float(res[1][6]) > 0.4 and m_ >= min_m_2d and s > 1
                 and not (rf5 and rf5.get("ok"))):
             try:
                 from torchfai.phases import phase_qs as _pqs2
@@ -1724,7 +1751,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                         img_hi, float(sol[0]) * scale, float(sol[1]) * scale,
                         float(sol[2]) * scale, qs_2d, float(res[2]),
                         n_iter=2, px_ratio=(px2_nat / px1_nat))
-                    if out_n is not None and out_n[3] >= 4:
+                    if out_n is not None and out_n[3] >= min_m_2d:
                         shift_hi = float(np.hypot(out_n[0] - float(sol[0]) * scale,
                                                   out_n[1] - float(sol[1]) * scale))
                         d_new_c = out_n[2] / scale
@@ -1734,6 +1761,32 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                             native_2d_ok = True
             except Exception:
                 native_2d_ok = False
+        # 少环四角残环补搜：m==3 且高匹配帧常因第 4 环仅擦过四角而未进 1D 主峰，按预测位收编
+        corner_added = 0
+        if m_ == 3 and res[0] is not None and float(res[1][6]) >= 0.60:
+            try:
+                from poni_out import sector_peaks as _sec_peaks
+                from torchfai.phases import phase_qs as _pqs_c
+                H_c, W_c = canvas.shape
+                cx_c, cy_c, D_c = float(sol[0]), float(sol[1]), float(sol[2])
+                r_edge = min(cx_c, cy_c, W_c - 1.0 - cx_c, H_c - 1.0 - cy_c)
+                r_corner = float(max(
+                    np.hypot(cx_c, cy_c), np.hypot(W_c - 1.0 - cx_c, cy_c),
+                    np.hypot(cx_c, H_c - 1.0 - cy_c), np.hypot(W_c - 1.0 - cx_c, H_c - 1.0 - cy_c),
+                ))
+                for r_th in _r_model(np.asarray(_pqs_c(res[0]), float), float(res[2]), D_c):
+                    if 0.90 * r_edge < float(r_th) < 0.98 * r_corner:
+                        pts_c = _sec_peaks(canvas, cx_c, cy_c, [float(r_th)],
+                                           nsec=36, win=5.0, mass_rel=0.08, bump=1.5)
+                        if len(pts_c) >= 3:
+                            rps_c = np.array([p[2] for p in pts_c], dtype=float)
+                            if float(np.median(np.abs(rps_c - float(r_th)))) <= max(2.0, 0.012 * float(r_th)):
+                                corner_added += 1
+                if corner_added > 0:
+                    m_ += corner_added
+                    sol = tuple([sol[0], sol[1], sol[2], m_, *sol[4:]])
+            except Exception:
+                corner_added = 0
         # 低 ps 扇区 5 参倾角精化（与 native_2d / refine5 互补，按严格安全门控启用）
         tilt_ref = None
         tilt_ok = False
@@ -1902,6 +1955,12 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         conf = None
         az_cov = 1.0
         is_part = False
+        d_final_mm = (
+            float(tilt_ref["dist"]) * 1000.0
+            if (isinstance(tilt_ref, dict) and tilt_ref.get("applied"))
+            else float(sol[2]) * float(px_c) * 1000.0
+        )
+        d_ref_ok = bool(d_ref_val is not None and abs(d_final_mm - d_ref_val) / d_ref_val <= 0.30)
         try:
             from confidence_map import evaluate_confidence
             from azimuthal_stacking import measure_azimuthal_coverage
@@ -1915,7 +1974,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
             if mf_score is not None and np.isfinite(mf_score) and m_ >= 4:
                 ps_for_conf = max(ps_for_conf, float(mf_score))
             conf = evaluate_confidence(m=m_, ps=ps_for_conf,
-                                       az_cov=az_cov, cv_ratio=cv_ratio)
+                                       az_cov=az_cov, cv_ratio=cv_ratio,
+                                       has_d_ref=d_ref_ok)
         except Exception:
             pass
 
@@ -1935,6 +1995,9 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     cv=cv_res,
                     mf_score=mf_score,
                     snip_rescued=bool(snip_rescued),
+                    d_ref_ok=d_ref_ok,
+                    harmonic_k=harmonic_k,
+                    corner_rings_added=corner_added,
                     confidence=conf,
                     az_coverage=az_cov,
                     is_partial_arc=is_part)
