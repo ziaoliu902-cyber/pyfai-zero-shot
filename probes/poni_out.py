@@ -291,6 +291,45 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     rms3 = float(np.sqrt(np.mean(res3 ** 2)))
     imp = 1.0 - rms5 / max(rms3, 1e-12)
     dist, poni1, poni2, rot1, rot2 = [float(v) for v in x5]
+    poni1_3_out, poni2_3_out = float(x3[1]), float(x3[2])
+    # 完整环（r < 0.50*min(H,W) 且覆盖 ≥半数扇区）一阶谐波定心：
+    # 消除四角残弧（r > 0.50*min(H,W) 仅 8~12 扇区）在 rot=0 模式下把圆心拉偏
+    try:
+        r_full = 0.50 * min(H, W)
+        cx_f = poni2_3_out / px2 - 0.5
+        cy_f = poni1_3_out / px1 - 0.5
+        D_f = float(x3[0]) / (0.5 * (px1 + px2))
+        radii_f = D_f * np.tan(tt)
+        vis_full = np.where((radii_f > 40) & (radii_f < r_full))[0]
+        if len(vis_full) >= 3:
+            min_sec = max(12, nsec // 2)
+            for _ in range(2):
+                pts_f = sector_peaks(canvas, cx_f, cy_f, radii_f[vis_full],
+                                     nsec=nsec, win=win, mass_rel=mass_rel,
+                                     bump=max(1.25, bump - 0.2))
+                dxs, dys = [], []
+                for k_f in range(len(vis_full)):
+                    pk = [p for p in pts_f if p[0] == k_f]
+                    if len(pk) < min_sec:
+                        continue
+                    chs = np.array([p[1] for p in pk])
+                    rps = np.array([p[2] for p in pk])
+                    A_h = np.column_stack([np.ones_like(chs),
+                                           np.cos(chs), np.sin(chs)])
+                    c_h, *_ = np.linalg.lstsq(A_h, rps, rcond=None)
+                    dxs.append(float(c_h[1]))
+                    dys.append(float(c_h[2]))
+                if len(dxs) >= 3:
+                    cx_f += float(np.median(dxs))
+                    cy_f += float(np.median(dys))
+                else:
+                    break
+            if np.hypot(cx_f - (poni2_3_out / px2 - 0.5),
+                        cy_f - (poni1_3_out / px1 - 0.5)) < 8.0:
+                poni1_3_out = float((cy_f + 0.5) * px1)
+                poni2_3_out = float((cx_f + 0.5) * px2)
+    except Exception:
+        pass
     npts = int(n_pts_fin)
     nrings = int(n_rings_fin)
     if dbg:
@@ -314,8 +353,8 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
                         p0=(dist, poni1, poni2, rot1, rot2), dist0=dist0,
                         poni1_0=poni1_0, poni2_0=poni2_0)
     return dict(dist=dist, poni1=poni1, poni2=poni2, rot1=rot1, rot2=rot2,
-                rot3=0.0, dist3=float(x3[0]), poni1_3=float(x3[1]),
-                poni2_3=float(x3[2]), rms5=rms5, rms3=rms3, imp=imp,
+                rot3=0.0, dist3=float(x3[0]), poni1_3=poni1_3_out,
+                poni2_3=poni2_3_out, rms5=rms5, rms3=rms3, imp=imp,
                 npts=npts, nrings=nrings,
                 tilt_deg=float(np.hypot(rot1, rot2) * 180 / np.pi))
 

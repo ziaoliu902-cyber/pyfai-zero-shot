@@ -1742,7 +1742,8 @@ class Win(QMainWindow):
                 dist_m, poni1_m, poni2_m, rot1, rot2 = _geom_from_res(res, px_m_nat)
                 cake = compute_cake(
                     self.img, dist_m, poni1_m, poni2_m, rot1=rot1, rot2=rot2,
-                    px1=px_m_nat, lam_A=float(res["lam"]), mask=self.mask)
+                    px1=px_m_nat, lam_A=float(res["lam"]), mask=self.mask,
+                    spline=self.spline)
                 draw_cake(self.ax_cake, cake, qs=phase_qs(res["ph"]),
                           title=f"q-χ 展开图 · {res['ph']}")
                 theme.restyle_axes(self.ax_cake, self.theme_name)
@@ -2063,7 +2064,8 @@ class Win(QMainWindow):
         try:
             from cake_report import export_diagnostic_figure
             px_m_nat = float(self.e_px.text() or 172.0) * 1e-6
-            export_diagnostic_figure(p, self.img, self.res, px_m_nat, mask=self.mask)
+            export_diagnostic_figure(p, self.img, self.res, px_m_nat,
+                                     mask=self.mask, spline=self.spline)
             self.status.setText(f"已导出标定体检图：{p}")
         except Exception:
             QMessageBox.critical(self, "导出体检图失败", traceback.format_exc(limit=6))

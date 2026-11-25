@@ -10,13 +10,13 @@ if "Microsoft YaHei" not in matplotlib.rcParams.get("font.sans-serif", []):
     ]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-from poni_out import _lam_A, tth_of
+from poni_out import _lam_A, fit_tilt, make_pyfai_fwd, tth_of
 from solver_core import _r_model, ring_radii, to_canvas
 
 
 def compute_cake(img, dist_m, poni1_m, poni2_m, rot1=0.0, rot2=0.0,
                  px1=172e-6, px2=None, lam_A=1.0, n_q=500, n_chi=180,
-                 mask=None):
+                 mask=None, spline=None):
     """纯 numpy 计算 (q, χ) 二维蛋糕展开图，返回 dict(cake, q_axis, chi_axis, tth_axis)。"""
     arr = np.asarray(img, dtype=np.float64)
     H, W = arr.shape
@@ -31,8 +31,17 @@ def compute_cake(img, dist_m, poni1_m, poni2_m, rot1=0.0, rot2=0.0,
 
     p1 = (ys + 0.5) * px1_f
     p2 = (xs + 0.5) * px2_f
-    tth = tth_of(p1, p2, float(dist_m), float(poni1_m), float(poni2_m),
-                 float(rot1), float(rot2))
+    if spline is not None:
+        try:
+            fwd = make_pyfai_fwd(px1_f, px2_f, spline)
+            tth = fwd(float(dist_m), float(poni1_m), float(poni2_m),
+                      float(rot1), float(rot2), ys, xs)
+        except Exception:
+            tth = tth_of(p1, p2, float(dist_m), float(poni1_m), float(poni2_m),
+                         float(rot1), float(rot2))
+    else:
+        tth = tth_of(p1, p2, float(dist_m), float(poni1_m), float(poni2_m),
+                     float(rot1), float(rot2))
     q_pix = 4.0 * np.pi * np.sin(0.5 * tth) / lam
     chi = np.rad2deg(np.arctan2(p1 - float(poni1_m), p2 - float(poni2_m)))
 
@@ -139,7 +148,7 @@ def _geom_from_res(res, px1_m, px2_m=None):
     )
 
 
-def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
+def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, spline=None):
     """生成 2x2 标定体检图（2D 环叠图 / q-χ Cake / 1D 径向谱 / 参数 QA 卡片）并保存。"""
     from matplotlib.patches import Circle
     from torchfai.phases import phase_qs
@@ -154,6 +163,25 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
     qs = phase_qs(phase) if phase else np.array([], dtype=float)
     dist_m, poni1_m, poni2_m, rot1, rot2 = _geom_from_res(res, px1_f, px2_f)
 
+    canvas = res.get("canvas")
+    if canvas is None:
+        canvas, s, _, _ = to_canvas(arr)
+    if spline is not None and len(qs) >= 4:
+        try:
+            fwd_sp = make_pyfai_fwd(px1_f, px2_f, spline)
+            tf_sp = fit_tilt(canvas, float(sol[0]), float(sol[1]), float(sol[2]),
+                             qs, lam, px1_f * s, px2_f * s, sfull=int(round(s)),
+                             fwd=fwd_sp, nsec=36, win=6.0, mass_rel=0.10,
+                             bump=1.5, suspect_tol=5e-3, min_gap=14.0)
+            if tf_sp is not None and tf_sp["nrings"] >= 4 and tf_sp["rms5"] < 0.006:
+                dist_m = float(tf_sp["dist"])
+                poni1_m = float(tf_sp["poni1"])
+                poni2_m = float(tf_sp["poni2"])
+                rot1 = float(tf_sp["rot1"])
+                rot2 = float(tf_sp["rot2"])
+        except Exception:
+            pass
+
     fig = Figure(figsize=(12, 9))
     ax_img = fig.add_subplot(2, 2, 1)
     ax_cake = fig.add_subplot(2, 2, 2)
@@ -161,9 +189,6 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
     ax_card = fig.add_subplot(2, 2, 4)
 
     # 1. 2D 衍射图 + 束心 + 理论环 + mask
-    canvas = res.get("canvas")
-    if canvas is None:
-        canvas, s, _, _ = to_canvas(arr)
     c_disp = np.log1p(np.clip(canvas, 0.0, None))
     fin = c_disp[np.isfinite(c_disp)]
     vlo, vhi = np.percentile(fin, [5.0, 99.2]) if fin.size else (0.0, 1.0)
@@ -179,7 +204,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
         cx_c, cy_c, D_c = cx_nat / max(s, 1.0), cy_nat / max(s, 1.0), D_nat / max(s, 1.0)
     else:
         cx_c, cy_c, D_c = float(sol[0]), float(sol[1]), float(sol[2])
-        cx_nat, cy_nat = cx_c * s, cy_c * s
+        cx_nat, cy_nat = (cx_c + 0.5) * s - 0.5, (cy_c + 0.5) * s - 0.5
     ax_img.plot([cx_c], [cy_c], "r+", ms=12, mew=1.8)
     for r_c in _r_model(qs, lam, D_c):
         if 5.0 < r_c < 1.5 * max(canvas.shape):
@@ -189,7 +214,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None):
 
     # 2. q-χ Cake
     cake = compute_cake(arr, dist_m, poni1_m, poni2_m, rot1=rot1, rot2=rot2,
-                        px1=px1_f, px2=px2_f, lam_A=lam, mask=mask)
+                        px1=px1_f, px2=px2_f, lam_A=lam, mask=mask, spline=spline)
     draw_cake(ax_cake, cake, qs=qs, title="q-χ 蛋糕展开图（环平直即无倾角残差）")
 
     # 3. 1D 径向谱（从已校正倾角与像素各向异性的 Cake 沿方位角均值导出）
