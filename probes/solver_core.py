@@ -1787,11 +1787,10 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     sol = tuple([sol[0], sol[1], sol[2], m_, *sol[4:]])
             except Exception:
                 corner_added = 0
-        # 低 ps 扇区 5 参倾角精化（与 native_2d / refine5 互补，按严格安全门控启用）
+        # 扇区 5 参倾角/部分弧精化（当 native_2d 因部分弧跳过时，无论 ps 高低均按安全门控尝试）
         tilt_ref = None
         tilt_ok = False
         if (tilt_refine and lam_in is not None and m_ >= 4
-                and float(res[1][6]) < 0.4
                 and not (rf5 and rf5.get("ok")) and not native_2d_ok):
             try:
                 from poni_out import fit_tilt as _fit_tilt
@@ -2019,6 +2018,30 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
     if mask is not None:
         register_mask(mask, s1)
     r1 = _solve_at(c1, px_m * s1, lam_in)
+    if d_ref_mm is not None and lam_in is not None and q_list is None:
+        try:
+            d_ref_m = float(d_ref_mm) * 1e-3
+            if d_ref_m > 0:
+                need_dref_rescue = (r1 is None)
+                if r1 is not None:
+                    d1_m = float(r1[1][2]) * float(px_m * s1)
+                    in_win = (abs(d1_m - d_ref_m) / d_ref_m <= 0.35)
+                    harm_ok = False
+                    from torchfai.phases import HARMONIC_PHASES as _HP_R
+                    if r1[0] in _HP_R and d1_m > 0:
+                        _kr = round(d_ref_m / d1_m)
+                        _krd = round(d1_m / d_ref_m)
+                        if (1 <= _kr <= 12 and abs(d_ref_m / d1_m - _kr) < 0.15 * _kr) or (
+                                2 <= _krd <= 12 and abs(d1_m / d_ref_m - _krd) < 0.15 * _krd):
+                            harm_ok = True
+                    need_dref_rescue = not (in_win or harm_ok)
+                if need_dref_rescue:
+                    kw_dref = dict(kw, d_range=(max(0.05, 0.55 * d_ref_m), 1.45 * d_ref_m))
+                    r_dref = _si_blind(c1, px_m * s1, lam_in, phases, kw_dref, dbg)
+                    if r_dref is not None:
+                        r1 = (r_dref[0], r_dref[1], lam_in)
+        except Exception:
+            pass
     dstat = _stat(r1)
 
     # ---- 升级档要不要扫（R2） ----

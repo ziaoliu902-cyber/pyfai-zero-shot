@@ -73,7 +73,7 @@ if "Microsoft YaHei" not in matplotlib.rcParams.get("font.sans-serif", []):
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 import theme
-from auto_mask import build_auto_mask
+from auto_mask import build_auto_mask, detect_beamstop_shadow
 from cake_report import (
     _geom_from_res,
     _mask_overlay,
@@ -362,6 +362,18 @@ class WorkflowWorker(QThread):
                     f"m={res['m']} | rms={res['rms']:.2f} px | rot=({rot1*1e3:+.2f}, {rot2*1e3:+.2f}) mrad"
                 )
             self.stage_changed.emit(2, "done", f"{ph} | D={dist_m*1000:.2f} mm")
+
+            # ---- 二段式离轴束挡掩膜（步骤 3 解出真实束心后补抓角落束挡阴影） ----
+            cx_nat = poni2_m / px2_m - 0.5
+            cy_nat = poni1_m / px1_m - 0.5
+            H_w, W_w = img_work.shape[:2]
+            if self.auto_bs and np.hypot(cx_nat - W_w / 2.0, cy_nat - H_w / 2.0) > 0.08 * min(H_w, W_w):
+                m_bs_off = detect_beamstop_shadow(img_work, cx=cx_nat, cy=cy_nat)
+                if m_bs_off.any():
+                    mask = m_bs_off if mask is None else (mask | m_bs_off)
+                    self.log_line.emit(f"[步骤3] 离轴束挡二次掩膜: +{int(m_bs_off.sum())} px")
+                    sp_tag = f" + {os.path.basename(self.spline_path)}" if self.spline_path else ""
+                    self.stage_changed.emit(1, "done", f"mask={int(mask.sum())} px{sp_tag}")
 
             # ---- Stage 4: Cake 体检 ----
             cur_stage = 3
