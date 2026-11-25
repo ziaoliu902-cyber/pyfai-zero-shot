@@ -53,6 +53,12 @@ def evaluate_confidence(m, ps, max_dev=None, az_cov=1.0, cv_ratio=None):
         color = "#e67e22"  # 橙色
         rationale = f"检测到部分残弧（方位覆盖仅 {az_cov:.0%}），存在束心-距离代偿的客观假解风险。"
         recommendation = "单帧存在数学不可辨识性；建议提供近似距离先验，或启用多帧方位角堆叠功能。"
+    elif m == 3 and ps >= 0.60:
+        tier = "MEDIUM"
+        badge = "🟡 少环/谐波简并 (请核对距离量级)"
+        color = "#f39c12"
+        rationale = f"仅匹配 {m} 条环但谱形高度吻合 (ps={ps:.3f} >= 0.60)，小角/谐波标样存在整数倍距离简并风险。"
+        recommendation = "若实验大致距离与当前结果量级一致则可直接使用；否则请提供近似距离先验以排除倍频简并。"
     elif m < 4:
         tier = "LOW"
         badge = "🔴 欠定简并 (m <= 3 环)"
