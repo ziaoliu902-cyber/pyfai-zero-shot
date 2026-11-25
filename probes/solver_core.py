@@ -210,6 +210,13 @@ def gradient_vote_center(canvas, step=2.0, edge_frac=0.10, sigma=1.0,
 
     返回 (cx, cy) 像素索引坐标；证据不足时回退几何中心。
     """
+    if max(canvas.shape[:2]) > 600:
+        c_ds, s_ds, _, _ = to_canvas(canvas, max_side=520)
+        if s_ds > 1:
+            cx_ds, cy_ds = gradient_vote_center(
+                c_ds, step=step, edge_frac=edge_frac, sigma=sigma, acc_sigma=acc_sigma
+            )
+            return float((cx_ds + 0.5) * s_ds - 0.5), float((cy_ds + 0.5) * s_ds - 0.5)
     from scipy.ndimage import gaussian_filter, sobel
 
     img = gaussian_filter(np.clip(np.asarray(canvas, np.float64), 0, None),
@@ -996,8 +1003,16 @@ def solve_auto(canvas, lam, px_m, phases=None, dbg=False,
         # 一、梯度投票给粗中心（部分弧可用，抗像素质心拉偏）；
         # 二、迭代圆拟合把粗中心压到 ~1px（mar3450 实证 6.9px→1.1px）——
         #     细环探测器在 5px 中心误差下就会把 LaB6 解成 Al2O3 假解。
-        gcx, gcy = gradient_vote_center(canvas)
-        rcx, rcy, qn, qs = refine_center_circles(canvas, (gcx, gcy))
+        _m_cur = _mask_for(canvas.shape)
+        _gk = (_canvas_key(canvas), 0 if _m_cur is None else int(_m_cur.sum()))
+        _cached_ctr = _GRAD_CTR_CACHE.get(_gk)
+        if _cached_ctr is None:
+            gcx, gcy = gradient_vote_center(canvas)
+            rcx, rcy, qn, qs = refine_center_circles(canvas, (gcx, gcy))
+            _cached_ctr = (gcx, gcy, rcx, rcy, qn, qs)
+            _GRAD_CTR_CACHE[_gk] = _cached_ctr
+        else:
+            gcx, gcy, rcx, rcy, qn, qs = _cached_ctr
         if qn >= 3 and qs < 1.0:
             alt = _solve_auto_at(canvas, lam, px_m, rcx, rcy, phases, dbg,
                                  D_ref_m, d_range, rms_floor, cascade,
@@ -2092,26 +2107,44 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
         # ---- 救援扫描（a/b 或 c 分叉确认）：λ 网格 / 联合 ----
         if run_r2:
             if lam_in is not None:
-                lo, hi, n = fb_grid if fb_grid else FB_LAM_GRID
-                best = None
-                for lg in np.geomspace(lo, hi, n) * lam_in:
-                    rr = _solve_at(c2, px_m * s2, float(lg))
-                    if rr is None:
-                        continue
-                    key = (rr[1][6], rr[1][3], -rr[1][4])
-                    if best is None or key > best[0]:
-                        best = (key, rr)
-                r2 = None if best is None else best[1]
+                r2_exact = _solve_at(c2, px_m * s2, float(lam_in))
+                if (r2_exact is not None and r2_exact[1][3] >= 6
+                        and r2_exact[1][6] >= 0.45 and r2_exact[1][4] < 1.5):
+                    r2 = r2_exact
+                else:
+                    lo, hi, n = fb_grid if fb_grid else FB_LAM_GRID
+                    best = (
+                        ((r2_exact[1][6], r2_exact[1][3], -r2_exact[1][4]), r2_exact)
+                        if r2_exact is not None else None
+                    )
+                    for lg in np.geomspace(lo, hi, n) * lam_in:
+                        if abs(float(lg) - float(lam_in)) <= 1e-6 * float(lam_in):
+                            continue
+                        rr = _solve_at(c2, px_m * s2, float(lg))
+                        if rr is None:
+                            continue
+                        key = (rr[1][6], rr[1][3], -rr[1][4])
+                        if best is None or key > best[0]:
+                            best = (key, rr)
+                    r2 = None if best is None else best[1]
             else:
                 r2 = _solve_at(c2, px_m * s2, None)
             lstat = _stat(r2)
 
-            # ---- 采用判决：T4 键序 (ps, m, −rms) 严格优于默认档 ----
-            # （校准：mar 救援解 m=5 < Quartz 假解 m=11，"m 不降"原案会误拒——
-            # ps 首位比较先分胜负；E4M/E9M 同解重解已在分叉预检挡掉）
+            # ---- 采用判决：T4 键序 (ps, m, −rms) 严格优于默认档，或 c-risk 大画布显著增环 ----
+            c_risk_more_rings = (
+                reason == "c-risk"
+                and r2 is not None
+                and lstat[1] >= 6
+                and lstat[0] >= 0.45
+                and lstat[2] < 1.5
+                and (dstat[1] is None or lstat[1] >= dstat[1] + 2)
+                and (dstat[2] is None or lstat[2] <= dstat[2] + 0.3)
+            )
             adopt = r2 is not None and (
                 True if reason == "a-none" else
-                (lstat[0], lstat[1], -lstat[2]) > (dstat[0], dstat[1], -dstat[2]))
+                ((lstat[0], lstat[1], -lstat[2]) > (dstat[0], dstat[1], -dstat[2])
+                 or c_risk_more_rings))
             if adopt:
                 out_tuple = (r2, c2, s2, px_m * s2, True, reason, lstat)
             elif r1 is not None:
@@ -2183,6 +2216,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
 
 _SH_CACHE = {}
 _KASA_CACHE = {}
+_GRAD_CTR_CACHE = {}
 
 
 def _canvas_key(canvas):
@@ -2274,6 +2308,13 @@ def center_by_sharpness(canvas, step=46, dbg=False):
     key = _canvas_key(canvas)
     if key in _SH_CACHE:
         return _SH_CACHE[key]
+    if max(canvas.shape[:2]) > 600:
+        c_ds, s_ds, _, _ = to_canvas(canvas, max_side=520)
+        if s_ds > 1:
+            cx_ds, cy_ds = center_by_sharpness(c_ds, step=step, dbg=dbg)
+            out = (float((cx_ds + 0.5) * s_ds - 0.5), float((cy_ds + 0.5) * s_ds - 0.5))
+            _SH_CACHE[key] = out
+            return out
     H, W = canvas.shape
     hypo = [((W - 1) / 2.0, (H - 1) / 2.0)]
     try:
