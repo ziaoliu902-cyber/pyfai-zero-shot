@@ -80,6 +80,16 @@ for mod in [
     "theme", "gui_solver", "solver_core",
 ]:
     CMD += ["--hidden-import", mod]
+if TARGET == "workflow":
+    demo_files = [
+        ("data/real/MX_ceria/ceria_250_1_0001.cbf", "data/real/MX_ceria"),
+        ("data/real/alumina/distorsion_2x2.spline", "data/real/alumina"),
+        ("data/real/alumina/al2o3_00_max_51_frames.poni", "data/real/alumina"),
+    ] + [(f"data/real/alumina/al2o3_{i:04d}.edf", "data/real/alumina") for i in range(5)]
+    for src_rel, dst_rel in demo_files:
+        src_abs = os.path.join(ROOT, src_rel)
+        if os.path.isfile(src_abs):
+            CMD += ["--add-data", f"{src_abs};{dst_rel}"]
 for e in EXCLUDES:
     CMD += ["--exclude-module", e]
 CMD.append(ENTRY)

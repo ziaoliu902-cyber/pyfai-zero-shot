@@ -12,6 +12,23 @@ import traceback
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJ_ROOT = os.path.dirname(ROOT)
+
+
+def _data_root():
+    """定位 data 目录（兼容源码运行与 PyInstaller 打包后的 _MEIPASS / _internal）。"""
+    cands = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            cands.append(os.path.join(meipass, "data"))
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        cands.append(os.path.join(exe_dir, "data"))
+        cands.append(os.path.join(exe_dir, "_internal", "data"))
+    cands.append(os.path.join(PROJ_ROOT, "data"))
+    for d in cands:
+        if os.path.isdir(d):
+            return d
+    return os.path.join(PROJ_ROOT, "data")
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 if PROJ_ROOT not in sys.path:
@@ -804,7 +821,7 @@ class WorkflowWindow(QMainWindow):
         self.status_lbl.setText(f"已导入 {mode_s}，可直接点击顶部【▶ 一键运行全流程】。")
 
     def load_demo_ceria(self):
-        p = os.path.join(PROJ_ROOT, "data", "real", "MX_ceria", "ceria_250_1_0001.cbf")
+        p = os.path.join(_data_root(), "real", "MX_ceria", "ceria_250_1_0001.cbf")
         if not os.path.isfile(p):
             QMessageBox.warning(self, "找不到示例", p)
             return
@@ -813,7 +830,7 @@ class WorkflowWindow(QMainWindow):
         self.cb_phase.setCurrentIndex(0)
 
     def load_demo_alumina(self):
-        al_dir = os.path.join(PROJ_ROOT, "data", "real", "alumina")
+        al_dir = os.path.join(_data_root(), "real", "alumina")
         ps = [os.path.join(al_dir, f"al2o3_{i:04d}.edf") for i in range(5)]
         ps = [p for p in ps if os.path.isfile(p)]
         if len(ps) < 2:
