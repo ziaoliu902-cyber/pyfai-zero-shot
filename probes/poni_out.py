@@ -148,7 +148,7 @@ def make_pyfai_fwd(px1=None, px2=None, spline=None):
 
 def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
              nsec=18, win=6.0, mass_rel=0.12, bump=1.5, dbg=False,
-             data_out=None, suspect_tol=5e-3, min_gap=14.0):
+             data_out=None, suspect_tol=5e-3, min_gap=14.0, rot_reg=0.0):
     """圆解 (cx, cy, D_px 画布px) → 控制点 5 参 LSQ。
 
     px1/px2 = 画布两轴物理尺寸（m，含池化因子；各向异性进模型）。
@@ -166,7 +166,13 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     tt = 2 * np.arcsin(np.clip(qs * lam / (4 * np.pi), 0, 0.999))
     radii = D_px * np.tan(tt)
     H, W = canvas.shape
-    vis = (radii > 40) & (radii < 0.98 * min(H, W))
+    r_max_vis = float(max(
+        np.hypot(cx, cy),
+        np.hypot(W - 1.0 - cx, cy),
+        np.hypot(cx, H - 1.0 - cy),
+        np.hypot(W - 1.0 - cx, H - 1.0 - cy),
+    ))
+    vis = (radii > 40) & (radii < 0.98 * r_max_vis)
     # —— 双线污染两段防御：未分辨双线(<14px≈2×FWHM)的融合峰位偏移由
     # 织构决定、I_rel 不可预测（alumina 实测偏 -15~-19mrad 恒定）。
     # ① 干净环（两侧间距均≥14px）先拟合 rot=0 三参锚定模型；
@@ -220,22 +226,38 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
             return fwd(p[0], p[1], p[2], p[3], p[4], dd1, dd2)
         return fwd(p[0], p[1], p[2], 0.0, 0.0, dd1, dd2)
 
+    d_bnd = max(0.03, 0.05 * dist0)
+
     def lsq(p0, free_rot, dd1, dd2, tt_, w_):
+        if free_rot and float(rot_reg) > 0.0:
+            rr_reg = float(rot_reg)
+
+            def resid(p):
+                data_r = (model(p, dd1, dd2) - tt_) * w_
+                return np.concatenate([data_r, [rr_reg * p[3], rr_reg * p[4]]])
+
+            s = least_squares(resid, p0, loss="soft_l1", f_scale=1.5e-3,
+                              x_scale=[0.01, 0.005, 0.005, 0.01, 0.01],
+                              bounds=([dist0 - d_bnd, poni1_0 - 40 * px1,
+                                       poni2_0 - 40 * px2, -0.06, -0.06],
+                                      [dist0 + d_bnd, poni1_0 + 40 * px1,
+                                       poni2_0 + 40 * px2, 0.06, 0.06]))
+            return s.x, s.fun[:-2] / w_
         def resid(p):
             return (model(p, dd1, dd2) - tt_) * w_
         if free_rot:
             s = least_squares(resid, p0, loss="soft_l1", f_scale=1.5e-3,
                               x_scale=[0.01, 0.005, 0.005, 0.01, 0.01],
-                              bounds=([dist0 - 0.03, poni1_0 - 40 * px1,
+                              bounds=([dist0 - d_bnd, poni1_0 - 40 * px1,
                                        poni2_0 - 40 * px2, -0.06, -0.06],
-                                      [dist0 + 0.03, poni1_0 + 40 * px1,
+                                      [dist0 + d_bnd, poni1_0 + 40 * px1,
                                        poni2_0 + 40 * px2, 0.06, 0.06]))
             return s.x, s.fun / w_
         s = least_squares(resid, p0[:3], loss="soft_l1", f_scale=1.5e-3,
                           x_scale=[0.01, 0.005, 0.005],
-                          bounds=([dist0 - 0.03, poni1_0 - 40 * px1,
+                          bounds=([dist0 - d_bnd, poni1_0 - 40 * px1,
                                    poni2_0 - 40 * px2],
-                                  [dist0 + 0.03, poni1_0 + 40 * px1,
+                                  [dist0 + d_bnd, poni1_0 + 40 * px1,
                                    poni2_0 + 40 * px2]))
         return np.array([s.x[0], s.x[1], s.x[2], 0.0, 0.0]), s.fun / w_
 

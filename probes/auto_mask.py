@@ -8,7 +8,7 @@ from solver_core import auto_gap_mask
 
 def detect_bad_pixels(img, hot_z=8.0):
     """检测无效像素（NaN/Inf/负值/哨兵 >=1e9）以及 3x3 孤立亮点（热像素）。"""
-    arr = np.asarray(img, dtype=np.float64)
+    arr = np.asarray(img, dtype=np.float32)
     if arr.ndim != 2 or arr.size == 0:
         return np.zeros(arr.shape, dtype=bool)
     invalid = (~np.isfinite(arr)) | (arr < 0.0) | (arr >= 1e9)
@@ -17,12 +17,17 @@ def detect_bad_pixels(img, hot_z=8.0):
         return invalid.copy()
     clean = arr.copy()
     if invalid.any():
-        clean[invalid] = float(np.median(arr[valid]))
+        v_ok = arr[valid]
+        if v_ok.size > 200_000:
+            v_ok = v_ok[::max(1, v_ok.size // 200_000)]
+        clean[invalid] = float(np.median(v_ok))
     med = median_filter(clean, size=3, mode="nearest")
     fp = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=bool)
     nb_max = maximum_filter(clean, footprint=fp, mode="nearest")
     resid = clean - med
     r_valid = resid[valid]
+    if r_valid.size > 200_000:
+        r_valid = r_valid[::max(1, r_valid.size // 200_000)]
     r_med = float(np.median(r_valid))
     mad = float(np.median(np.abs(r_valid - r_med)))
     sigma = max(1.4826 * mad, 1.0)
@@ -37,7 +42,7 @@ def detect_bad_pixels(img, hot_z=8.0):
 def detect_beamstop_shadow(img, cx=None, cy=None, dark_frac=0.25,
                            max_area_frac=0.15):
     """检测靠近束流中心的暗区连通域（束流挡盘/挡杆阴影）。"""
-    arr = np.asarray(img, dtype=np.float64)
+    arr = np.asarray(img, dtype=np.float32)
     if arr.ndim != 2 or arr.size == 0:
         return np.zeros(arr.shape, dtype=bool)
     H, W = arr.shape
@@ -47,9 +52,8 @@ def detect_beamstop_shadow(img, cx=None, cy=None, dark_frac=0.25,
     if valid.sum() < 100:
         return np.zeros(arr.shape, dtype=bool)
     vals = arr[valid]
-    p_dark = float(np.percentile(vals, 0.1))
-    p10 = float(np.percentile(vals, 10.0))
-    p50 = float(np.percentile(vals, 50.0))
+    vals_sub = vals[::max(1, vals.size // 250_000)] if vals.size > 250_000 else vals
+    p_dark, p10, p50 = (float(x) for x in np.percentile(vals_sub, [0.1, 10.0, 50.0]))
     if p50 <= p_dark:
         return np.zeros(arr.shape, dtype=bool)
     thr = min(p10, p_dark + float(dark_frac) * (p50 - p_dark))

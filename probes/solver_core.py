@@ -445,13 +445,24 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
     · 反背景判据：角落涟漪峰高 < 背景中位（负向凹陷抖动），真环必高于
       背景 → 只收 prof[p] > bg 的峰。
     """
+    _ck = _canvas_key(canvas)
+    _m = _mask_for(canvas.shape)
+    _us_k = _SNIP_BG if use_snip is None else bool(use_snip)
+    rr_key = (
+        _ck, round(float(cx), 2), round(float(cy), 2),
+        int(nb), round(float(min_r), 3), round(float(prom), 4),
+        bool(use_pv), None if spot_clip is None else round(float(spot_clip), 3),
+        _us_k, int(_RING_SENS), 0 if _m is None else int(_m.sum()),
+    )
+    cached_rr = _RING_RADII_CACHE.get(rr_key)
+    if cached_rr is not None:
+        return list(cached_rr[0]), cached_rr[1], cached_rr[2], cached_rr[3]
     H, W = canvas.shape
     yy = np.arange(H)[:, None]
     xx = np.arange(W)[None, :]
     r = np.hypot(yy - cy, xx - cx)
     rmax = float(r.max())
     idx = (r / rmax * (nb - 1)).astype(np.int32).ravel()
-    _m = _mask_for(canvas.shape)
     v_raw = canvas.astype(np.float64).ravel()
     valid = (~_m.ravel()) if _m is not None else None
     if valid is not None:
@@ -563,6 +574,9 @@ def ring_radii(canvas, cx, cy, nb=NB, min_r=MIN_R, prom=PROM,
                 merged = new_merged
         except Exception:
             pass
+    if len(_RING_RADII_CACHE) > 256:
+        _RING_RADII_CACHE.clear()
+    _RING_RADII_CACHE[rr_key] = (list(merged), prof_out, bin_px, good)
     return merged, prof_out, bin_px, good
 
 
@@ -701,25 +715,37 @@ def _center_refine(canvas, cx, cy, rm_list, I_rel, dbg=False):
     """环方位角一次谐波定心：环上像素 r(θ) ≈ r̄ − dx·cosθ − dy·sinθ。
     对最强 4 条可见环做加权回归，取中位偏移。返回 (cx', cy')。"""
     H, W = canvas.shape
-    yy = np.arange(H)[:, None]
-    xx = np.arange(W)[None, :]
-    r = np.hypot(yy - cy, xx - cx)
-    bg = float(np.median(canvas))
-    dxs, dys = [], []
     order = np.argsort(-np.asarray(I_rel, float))
     r_edge = min(cx, cy, W - 1 - cx, H - 1 - cy) * 0.95
-    for k in order[:6]:
-        r0 = float(rm_list[k])
-        if not (40 < r0 < r_edge):
-            continue
+    vis_rs = [float(rm_list[k]) for k in order[:6] if 40 < float(rm_list[k]) < r_edge]
+    if not vis_rs:
+        return cx, cy
+    ck = _canvas_key(canvas)
+    bg = _MEDIAN_CACHE.get(ck)
+    if bg is None:
+        if len(_MEDIAN_CACHE) > 128:
+            _MEDIAN_CACHE.clear()
+        bg = float(np.median(canvas))
+        _MEDIAN_CACHE[ck] = bg
+    half_w = int(np.ceil(max(vis_rs) + 6.0))
+    y0 = max(0, int(np.floor(cy - half_w)))
+    y1 = min(H, int(np.ceil(cy + half_w)) + 1)
+    x0 = max(0, int(np.floor(cx - half_w)))
+    x1 = min(W, int(np.ceil(cx + half_w)) + 1)
+    yy = np.arange(y0, y1)[:, None]
+    xx = np.arange(x0, x1)[None, :]
+    r = np.hypot(yy - cy, xx - cx)
+    sub = canvas[y0:y1, x0:x1]
+    dxs, dys = [], []
+    for r0 in vis_rs:
         sel = np.abs(r - r0) < 5.0
         iy, ix = np.nonzero(sel)
-        w = canvas[iy, ix] - bg
+        w = sub[iy, ix] - bg
         keep = w > 0
         if keep.sum() < 200:
             continue
         w = w[keep]
-        th = np.arctan2(iy[keep] - cy, ix[keep] - cx)
+        th = np.arctan2(iy[keep] + y0 - cy, ix[keep] + x0 - cx)
         rr = r[iy[keep], ix[keep]]
         A = np.stack([np.cos(th), np.sin(th)], axis=1)
         Wd = np.sqrt(w)
@@ -1816,12 +1842,39 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     from torchfai.phases import phase_qs as _pqs_t
                     qs_tilt = np.asarray(_pqs_t(res[0]), float)
                 if qs_tilt is not None and len(qs_tilt) >= 4:
-                    tf = _fit_tilt(
-                        canvas, float(sol[0]), float(sol[1]), float(sol[2]),
-                        qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
-                        sfull=s, fwd=None, nsec=36, win=6.0,
-                        mass_rel=0.10, bump=1.5,
-                        suspect_tol=2e-3, min_gap=14.0)
+                    az_cov_pre = 1.0
+                    try:
+                        from azimuthal_stacking import measure_azimuthal_coverage
+                        az_cov_pre = float(
+                            measure_azimuthal_coverage(canvas, float(sol[0]), float(sol[1])).get("coverage", 1.0)
+                        )
+                    except Exception:
+                        az_cov_pre = 1.0
+                    if az_cov_pre < 0.50:
+                        if s > 2:
+                            c_tf, s_tf, _, _ = to_canvas(img, max_side=1440)
+                            sc_tf = float(s) / float(s_tf)
+                            tf = _fit_tilt(
+                                c_tf, float(sol[0]) * sc_tf, float(sol[1]) * sc_tf,
+                                float(sol[2]) * sc_tf, qs_tilt, float(res[2]),
+                                px1_nat * s_tf, px2_nat * s_tf,
+                                sfull=s_tf, fwd=None, nsec=72, win=6.0,
+                                mass_rel=0.10, bump=1.5,
+                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05)
+                        else:
+                            tf = _fit_tilt(
+                                canvas, float(sol[0]), float(sol[1]), float(sol[2]),
+                                qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
+                                sfull=s, fwd=None, nsec=72, win=6.0,
+                                mass_rel=0.10, bump=1.5,
+                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05)
+                    else:
+                        tf = _fit_tilt(
+                            canvas, float(sol[0]), float(sol[1]), float(sol[2]),
+                            qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
+                            sfull=s, fwd=None, nsec=36, win=6.0,
+                            mass_rel=0.10, bump=1.5,
+                            suspect_tol=2e-3, min_gap=14.0)
                     if tf is not None:
                         d_old_m = float(sol[2]) * px_c
                         d_rel = abs(tf["dist"] - d_old_m) / max(d_old_m, 1e-6)
@@ -2217,6 +2270,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
 _SH_CACHE = {}
 _KASA_CACHE = {}
 _GRAD_CTR_CACHE = {}
+_RING_RADII_CACHE = {}
+_MEDIAN_CACHE = {}
 
 
 def _canvas_key(canvas):
