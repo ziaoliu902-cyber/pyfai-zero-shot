@@ -1855,9 +1855,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                             c_tf, s_tf, _, _ = to_canvas(img, max_side=1440)
                             sc_tf = float(s) / float(s_tf)
                             tf = _fit_tilt(
-                                c_tf,
-                                (float(sol[0]) + 0.5) * sc_tf - 0.5,
-                                (float(sol[1]) + 0.5) * sc_tf - 0.5,
+                                c_tf, float(sol[0]) * sc_tf, float(sol[1]) * sc_tf,
                                 float(sol[2]) * sc_tf, qs_tilt, float(res[2]),
                                 px1_nat * s_tf, px2_nat * s_tf,
                                 sfull=s_tf, fwd=None, nsec=72, win=6.0,
@@ -1882,8 +1880,9 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                     if tf is not None:
                         d_old_m = float(sol[2]) * px_c
                         d_rel = abs(tf["dist"] - d_old_m) / max(d_old_m, 1e-6)
+                        rms_lim = 0.0006 if az_cov_pre < 0.50 else 0.006
                         ok_tf = (tf["nrings"] >= 4 and tf["npts"] >= 40
-                                 and tf["rms5"] < 0.006 and tf["tilt_deg"] < 3.5
+                                 and tf["rms5"] < rms_lim and tf["tilt_deg"] < 3.5
                                  and d_rel < 0.04)
                         tf["applied"] = bool(ok_tf)
                         tilt_ref = tf
@@ -1985,31 +1984,79 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                     and abs(r0 - r_raw[idx]) <= 2.0 * bp_f):
                                 r_pv[idx] = float(r0)
 
-                    is_x3_tilt = bool(
-                        tilt_ok and isinstance(tilt_ref, dict)
-                        and tilt_ref.get("applied") and tilt_ref.get("mode") == "x3"
-                    )
                     if (len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok"))
-                            and not native_2d_ok and (not tilt_ok or is_x3_tilt)):
-                        denom = float(np.sum(k_m ** 2))
-                        if denom > 0:
-                            D_pv = float(np.sum(r_pv * k_m) / denom)
-                            rms_pv = float(np.sqrt(np.mean((r_pv - D_pv * k_m) ** 2)))
-                            d_pv_tol = 0.02 if is_x3_tilt else 0.01
-                            if (abs(D_pv - D_c) / max(D_c, 1e-6) < d_pv_tol
-                                    and rms_pv < min(rms_raw, sol_rms)):
-                                sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
-                                if is_x3_tilt:
-                                    d_pv_m = float(D_pv) * float(px_c)
-                                    tilt_ref["dist"] = d_pv_m
-                                    tilt_ref["dist3"] = d_pv_m
-                                pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
-                                              n_rings=int(len(r_pv)),
-                                              rms_raw=rms_raw, rms_pv=rms_pv)
-                            else:
-                                pv_ref = dict(applied=False, D_old=D_c, D_new=D_pv,
-                                              n_rings=int(len(r_pv)),
-                                              rms_raw=rms_raw, rms_pv=rms_pv)
+                            and not native_2d_ok and not tilt_ok):
+                        used_hi_pv = False
+                        if s > 2:
+                            try:
+                                c_pv, s_pv, _, _ = to_canvas(img, max_side=1440)
+                                sc_pv = float(s) / float(s_pv)
+                                if mask is not None:
+                                    register_mask(mask, s_pv)
+                                cx_pv = float(sol[0]) * sc_pv
+                                cy_pv = float(sol[1]) * sc_pv
+                                D_pv0 = float(D_c) * sc_pv
+                                pks_hi, prof_hi, bp_hi, _ = ring_radii(
+                                    c_pv, cx_pv, cy_pv, use_snip=snip_rescued)
+                                r_th_hi = D_pv0 * k_all
+                                pairs_hi = []
+                                for qi, r_th in enumerate(r_th_hi):
+                                    tol_h = max(1.5, 0.015 * r_th)
+                                    for pi, (rp, _h) in enumerate(pks_hi):
+                                        err = abs(rp - r_th)
+                                        if err <= tol_h:
+                                            pairs_hi.append((err, pi, qi))
+                                pairs_hi.sort()
+                                up_h, uq_h, ml_h = set(), set(), []
+                                for _err, pi, qi in pairs_hi:
+                                    if pi in up_h or qi in uq_h:
+                                        continue
+                                    up_h.add(pi)
+                                    uq_h.add(qi)
+                                    ml_h.append((pks_hi[pi][0], float(k_all[qi])))
+                                if len(ml_h) >= max(3, m_):
+                                    r_raw_h = np.array([t[0] for t in ml_h], dtype=float)
+                                    k_h = np.array([t[1] for t in ml_h], dtype=float)
+                                    rms_raw_h = float(np.sqrt(np.mean((r_raw_h - D_pv0 * k_h) ** 2)))
+                                    r_ax_h = (np.arange(len(prof_hi)) + 0.5) * bp_hi
+                                    pvl_h = refine_radial_peaks_pv(r_ax_h, prof_hi, list(r_raw_h), half_win=6)
+                                    r_pv_h = r_raw_h.copy()
+                                    if len(pvl_h) == len(r_raw_h):
+                                        for idx_h, pvh in enumerate(pvl_h):
+                                            r0h = pvh.get("r0", r_raw_h[idx_h])
+                                            if (pvh.get("success") and np.isfinite(r0h)
+                                                    and abs(r0h - r_raw_h[idx_h]) <= 2.0 * bp_hi):
+                                                r_pv_h[idx_h] = float(r0h)
+                                    den_h = float(np.sum(k_h ** 2))
+                                    if den_h > 0:
+                                        D_pv_hi = float(np.sum(r_pv_h * k_h) / den_h)
+                                        rms_pv_hi = float(np.sqrt(np.mean((r_pv_h - D_pv_hi * k_h) ** 2)))
+                                        D_pv = D_pv_hi / sc_pv
+                                        if (abs(D_pv_hi - D_pv0) / max(D_pv0, 1e-6) < 0.01
+                                                and rms_pv_hi < min(rms_raw_h, sol_rms * sc_pv)):
+                                            sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
+                                            pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
+                                                          n_rings=int(len(r_pv_h)),
+                                                          rms_raw=rms_raw_h / sc_pv, rms_pv=rms_pv_hi / sc_pv,
+                                                          hi_res=True)
+                                            used_hi_pv = True
+                            except Exception:
+                                used_hi_pv = False
+                        if not used_hi_pv:
+                            denom = float(np.sum(k_m ** 2))
+                            if denom > 0:
+                                D_pv = float(np.sum(r_pv * k_m) / denom)
+                                rms_pv = float(np.sqrt(np.mean((r_pv - D_pv * k_m) ** 2)))
+                                if (abs(D_pv - D_c) / max(D_c, 1e-6) < 0.01
+                                        and rms_pv < min(rms_raw, sol_rms)):
+                                    sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
+                                    pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
+                                                  n_rings=int(len(r_pv)),
+                                                  rms_raw=rms_raw, rms_pv=rms_pv)
+                                else:
+                                    pv_ref = dict(applied=False, D_old=D_c, D_new=D_pv,
+                                                  n_rings=int(len(r_pv)),
+                                                  rms_raw=rms_raw, rms_pv=rms_pv)
 
                     if m_ <= 5:
                         from split_half_cv import split_half_verify

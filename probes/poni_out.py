@@ -197,21 +197,7 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     suspect = np.where(vis & ~gap_ok)[0]
     if len(base) < 2:
         return None
-    if use_corner_eff:
-        n_q = len(radii)
-        min_adj_gap = np.full(n_q, np.inf, dtype=float)
-        if n_q >= 2:
-            order_r = np.argsort(radii)
-            sr = radii[order_r]
-            gaps_s = np.full(n_q, np.inf, dtype=float)
-            gaps_s[:-1] = np.minimum(gaps_s[:-1], np.diff(sr))
-            gaps_s[1:] = np.minimum(gaps_s[1:], np.diff(sr))
-            min_adj_gap[order_r] = gaps_s
-        wins_all = np.clip(0.40 * min_adj_gap, 2.0, float(win))
-        w_base, w_susp = wins_all[base], wins_all[suspect]
-    else:
-        w_base, w_susp = win, win
-    pts = sector_peaks(canvas, cx, cy, radii[base], nsec=nsec, win=w_base,
+    pts = sector_peaks(canvas, cx, cy, radii[base], nsec=nsec, win=win,
                        mass_rel=mass_rel, bump=bump)
     rings = {k for k, _, _, _ in pts}
     if len(rings) < 2 or len(pts) < 10:
@@ -219,7 +205,7 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
             print(f"    [dbg] 倾角: 干净环不足 {len(pts)}pt/{len(rings)}环")
         return None
     if len(suspect):
-        sp = sector_peaks(canvas, cx, cy, radii[suspect], nsec=nsec, win=w_susp,
+        sp = sector_peaks(canvas, cx, cy, radii[suspect], nsec=nsec, win=win,
                           mass_rel=mass_rel, bump=bump)
     else:
         sp = []
