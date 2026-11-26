@@ -1855,19 +1855,23 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                             c_tf, s_tf, _, _ = to_canvas(img, max_side=1440)
                             sc_tf = float(s) / float(s_tf)
                             tf = _fit_tilt(
-                                c_tf, float(sol[0]) * sc_tf, float(sol[1]) * sc_tf,
+                                c_tf,
+                                (float(sol[0]) + 0.5) * sc_tf - 0.5,
+                                (float(sol[1]) + 0.5) * sc_tf - 0.5,
                                 float(sol[2]) * sc_tf, qs_tilt, float(res[2]),
                                 px1_nat * s_tf, px2_nat * s_tf,
                                 sfull=s_tf, fwd=None, nsec=72, win=6.0,
                                 mass_rel=0.10, bump=1.5,
-                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05)
+                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05,
+                                use_corner=True)
                         else:
                             tf = _fit_tilt(
                                 canvas, float(sol[0]), float(sol[1]), float(sol[2]),
                                 qs_tilt, float(res[2]), px1_nat * s, px2_nat * s,
                                 sfull=s, fwd=None, nsec=72, win=6.0,
                                 mass_rel=0.10, bump=1.5,
-                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05)
+                                suspect_tol=2e-3, min_gap=14.0, rot_reg=0.05,
+                                use_corner=True)
                     else:
                         tf = _fit_tilt(
                             canvas, float(sol[0]), float(sol[1]), float(sol[2]),
@@ -1981,15 +1985,24 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                     and abs(r0 - r_raw[idx]) <= 2.0 * bp_f):
                                 r_pv[idx] = float(r0)
 
+                    is_x3_tilt = bool(
+                        tilt_ok and isinstance(tilt_ref, dict)
+                        and tilt_ref.get("applied") and tilt_ref.get("mode") == "x3"
+                    )
                     if (len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok"))
-                            and not native_2d_ok and not tilt_ok):
+                            and not native_2d_ok and (not tilt_ok or is_x3_tilt)):
                         denom = float(np.sum(k_m ** 2))
                         if denom > 0:
                             D_pv = float(np.sum(r_pv * k_m) / denom)
                             rms_pv = float(np.sqrt(np.mean((r_pv - D_pv * k_m) ** 2)))
-                            if (abs(D_pv - D_c) / max(D_c, 1e-6) < 0.01
+                            d_pv_tol = 0.02 if is_x3_tilt else 0.01
+                            if (abs(D_pv - D_c) / max(D_c, 1e-6) < d_pv_tol
                                     and rms_pv < min(rms_raw, sol_rms)):
                                 sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
+                                if is_x3_tilt:
+                                    d_pv_m = float(D_pv) * float(px_c)
+                                    tilt_ref["dist"] = d_pv_m
+                                    tilt_ref["dist3"] = d_pv_m
                                 pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
                                               n_rings=int(len(r_pv)),
                                               rms_raw=rms_raw, rms_pv=rms_pv)

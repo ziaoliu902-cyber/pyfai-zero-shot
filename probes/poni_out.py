@@ -61,10 +61,16 @@ def sector_peaks(canvas, cx, cy, radii, nsec=12, win=6.0, mass_rel=0.12,
     chi = np.arctan2(yy - cy, xx - cx)
     bg = float(np.median(canvas))
     w_img = np.clip(canvas - bg, 0, None)
-    nb = int(round(2 * win))
+    r_arr = np.atleast_1d(radii)
+    win_arr = (
+        np.full(len(r_arr), float(win), dtype=float)
+        if np.ndim(win) == 0 else np.asarray(win, dtype=float)
+    )
     out = []
-    for k, r0 in enumerate(np.atleast_1d(radii)):
-        sel = np.abs(r - r0) < win
+    for k, r0 in enumerate(r_arr):
+        w_k = float(win_arr[k])
+        nb_k = max(6, int(round(2.0 * w_k)))
+        sel = np.abs(r - r0) < w_k
         if sel.sum() < 300:
             continue
         rr = r[sel]
@@ -75,22 +81,22 @@ def sector_peaks(canvas, cx, cy, radii, nsec=12, win=6.0, mass_rel=0.12,
         m_med = float(np.median(mass[mass > 0])) if (mass > 0).any() else 0.0
         if m_med <= 0:
             continue
-        lo = r0 - win
+        lo = r0 - w_k
         for s in range(nsec):
             if mass[s] < mass_rel * m_med:
                 continue
             m = sec == s
-            bidx = np.clip(((rr[m] - lo) / (2 * win) * nb)
-                           .astype(int), 0, nb - 1)
-            prof = np.bincount(bidx, weights=ww[m], minlength=nb)
+            bidx = np.clip(((rr[m] - lo) / (2 * w_k) * nb_k)
+                           .astype(int), 0, nb_k - 1)
+            prof = np.bincount(bidx, weights=ww[m], minlength=nb_k)
             pk = int(prof.argmax())
-            if pk <= 0 or pk >= nb - 1:
+            if pk <= 0 or pk >= nb_k - 1:
                 continue
             if prof[pk] < bump * prof.mean():
                 continue
             y0, y1, y2 = prof[pk - 1], prof[pk], prof[pk + 1]
             d = 0.5 * (y0 - y2) / max(y0 - 2 * y1 + y2, 1e-12)
-            rp = lo + (pk + 0.5 + np.clip(d, -1, 1)) * (2 * win / nb)
+            rp = lo + (pk + 0.5 + np.clip(d, -1, 1)) * (2 * w_k / nb_k)
             chi_c = (s + 0.5) / nsec * 2 * np.pi - np.pi
             out.append((k, chi_c, float(rp), float(mass[s])))
     return out
@@ -148,7 +154,8 @@ def make_pyfai_fwd(px1=None, px2=None, spline=None):
 
 def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
              nsec=18, win=6.0, mass_rel=0.12, bump=1.5, dbg=False,
-             data_out=None, suspect_tol=5e-3, min_gap=14.0, rot_reg=0.0):
+             data_out=None, suspect_tol=5e-3, min_gap=14.0, rot_reg=0.0,
+             use_corner=False):
     """圆解 (cx, cy, D_px 画布px) → 控制点 5 参 LSQ。
 
     px1/px2 = 画布两轴物理尺寸（m，含池化因子；各向异性进模型）。
@@ -166,13 +173,18 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     tt = 2 * np.arcsin(np.clip(qs * lam / (4 * np.pi), 0, 0.999))
     radii = D_px * np.tan(tt)
     H, W = canvas.shape
-    r_max_vis = float(max(
-        np.hypot(cx, cy),
-        np.hypot(W - 1.0 - cx, cy),
-        np.hypot(cx, H - 1.0 - cy),
-        np.hypot(W - 1.0 - cx, H - 1.0 - cy),
-    ))
-    vis = (radii > 40) & (radii < 0.98 * r_max_vis)
+    vis_in = (radii > 40) & (radii < 0.98 * min(H, W))
+    use_corner_eff = bool(use_corner) or (int(vis_in.sum()) < 3)
+    if use_corner_eff:
+        r_max_vis = float(max(
+            np.hypot(cx, cy),
+            np.hypot(W - 1.0 - cx, cy),
+            np.hypot(cx, H - 1.0 - cy),
+            np.hypot(W - 1.0 - cx, H - 1.0 - cy),
+        ))
+        vis = (radii > 40) & (radii < 0.98 * r_max_vis)
+    else:
+        vis = vis_in
     # —— 双线污染两段防御：未分辨双线(<14px≈2×FWHM)的融合峰位偏移由
     # 织构决定、I_rel 不可预测（alumina 实测偏 -15~-19mrad 恒定）。
     # ① 干净环（两侧间距均≥14px）先拟合 rot=0 三参锚定模型；
@@ -185,7 +197,21 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
     suspect = np.where(vis & ~gap_ok)[0]
     if len(base) < 2:
         return None
-    pts = sector_peaks(canvas, cx, cy, radii[base], nsec=nsec, win=win,
+    if use_corner_eff:
+        n_q = len(radii)
+        min_adj_gap = np.full(n_q, np.inf, dtype=float)
+        if n_q >= 2:
+            order_r = np.argsort(radii)
+            sr = radii[order_r]
+            gaps_s = np.full(n_q, np.inf, dtype=float)
+            gaps_s[:-1] = np.minimum(gaps_s[:-1], np.diff(sr))
+            gaps_s[1:] = np.minimum(gaps_s[1:], np.diff(sr))
+            min_adj_gap[order_r] = gaps_s
+        wins_all = np.clip(0.40 * min_adj_gap, 2.0, float(win))
+        w_base, w_susp = wins_all[base], wins_all[suspect]
+    else:
+        w_base, w_susp = win, win
+    pts = sector_peaks(canvas, cx, cy, radii[base], nsec=nsec, win=w_base,
                        mass_rel=mass_rel, bump=bump)
     rings = {k for k, _, _, _ in pts}
     if len(rings) < 2 or len(pts) < 10:
@@ -193,7 +219,7 @@ def fit_tilt(canvas, cx, cy, D_px, qs, lam, px1, px2, sfull=1, fwd=None,
             print(f"    [dbg] 倾角: 干净环不足 {len(pts)}pt/{len(rings)}环")
         return None
     if len(suspect):
-        sp = sector_peaks(canvas, cx, cy, radii[suspect], nsec=nsec, win=win,
+        sp = sector_peaks(canvas, cx, cy, radii[suspect], nsec=nsec, win=w_susp,
                           mass_rel=mass_rel, bump=bump)
     else:
         sp = []
