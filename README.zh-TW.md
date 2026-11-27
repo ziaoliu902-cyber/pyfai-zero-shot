@@ -2,59 +2,63 @@
 
 # pyfai-zero-shot
 
-**無須先驗物相與初始幾何的二維粉晶 X 射線探測器自動標定引擎<br>全環與離軸四角殘弧通用 · 11 語種桌面工作台**
+**無須先驗物相與初始幾何的二維粉晶 X 射線探測器自動標定工具<br>全環與離軸四角殘弧通用 · 直接匯出標準 pyFAI <code>.poni</code>**
 
-🚫 無須指定標樣物相 &nbsp;·&nbsp; 🚫 無須初始距離/束心 &nbsp;·&nbsp; 🌍 11 語言桌面端（含阿拉伯語 RTL）<br>✅ 直接匯出標準 pyFAI <code>.poni</code> &nbsp;·&nbsp; ✅ 定量可辨識度分級 &nbsp;·&nbsp; ✅ 凍結基線 <code>f608e67</code>
+🚫 無須指定標樣名稱 &nbsp;·&nbsp; 🚫 無須初始距離/束心 &nbsp;·&nbsp; 🌍 11 語言桌面介面（含阿拉伯語 RTL）<br>✅ 匯出標準 pyFAI <code>.poni</code> &nbsp;·&nbsp; ✅ 內建 Cake 展開體檢與置信度分級 &nbsp;·&nbsp; ✅ 支援自訂 <code>.cif</code> 物相
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **正體中文** · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
-[![Commit](https://img.shields.io/badge/frozen-f608e67-0072B2)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
+[![Built for pyFAI](https://img.shields.io/badge/built%20for-pyFAI-013243)]()
 [![GUI Languages](https://img.shields.io/badge/GUI_languages-11_(incl._RTL)-009E73)]()
-[![Manuscript](https://img.shields.io/badge/manuscript-Science_Advances_Research_Resource-D55E00)](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
 
 </div>
 
 ---
 
+## 為什麼使用 pyfai-zero-shot？
 
+`pyFAI-calib2`、`DIOPTAS` 等軟體在初值準確時精度極高，但若缺少初始距離與束心、或束斑落在探測器角落時，自動配對容易陷入錯位盆地。
 
-## 多語言桌面工作台（11 種語言）
+`pyfai-zero-shot` 僅需單張繞射圖、像素尺寸與波長即可全自動識別物相並求解幾何，直接匯出 `.poni`（或交由 `pyFAI` 接續亞像素精修）。
 
-- **PyFAI-Workflow (`probes/gui_workflow.py`)** — 5 階段視覺化流程圖工作台，整合自動遮罩、Cake 展開體檢與置信度分級，內建 **`probes/i18n_wf.py` 11 語種即時切換**（简体中文、English、正體中文、日本語、Français、Deutsch、Русский、Português、한국어、Español、العربية 含原生 RTL 版面）。
-- **DiffBlindWizard (`probes/gui_wizard.py`)** — 5 步驟引導式 `.poni` 生成精靈。
+## 11 語言桌面工作台與精靈
 
-## 核心原理
+- **PyFAI-Workflow (`probes/gui_workflow.py`)** — 5 階段視覺化流程圖工作台，內建 **`probes/i18n_wf.py` 11 語種即時切換**（简体中文、English、正體中文、日本語、Français、Deutsch、Русский、Português、한국어、Español、العربية 含原生 RTL）。
+- **DiffBlindWizard (`probes/gui_wizard.py`)** — 5 步驟引導式標定精靈。
+- **自訂物相 (`probes/custom_phase.py`)** — 支援直接匯入任意 `.cif` 或 `.D` 晶體資料。
 
-1. **自適應前處理**：`auto_offset` 扣除平板探測器負基底；`auto_mask` 自動遮罩模組縫隙、壞點熱像素與束流擋片陰影。
-2. **多尺度畫布階梯（`R2`）**：預設 `≤ 520 px`，遇分叉風險（`s ≥ 5` 且 `|ΔD|/D ≥ 10%`）自動升級至 `ceil(maxdim/2)`。
-3. **零先驗定心與物相仲裁**：Layer-0 銳度/Kåsa 守衛、環飢餓守衛、徑向對稱+射線多種子共識投票與 Pearson 譜相關 `ps`。
-4. **全環與部分弧精修**：全環採用原生 2D Taubin 圓擬合；離軸四角殘弧（`az_cov < 50%`）啟用 `1440²` 正則化傾角與**兩參數差分 Pseudo-Voigt 解耦**。
+## 運作原理
+
+1. **自適應前處理**：`auto_offset` 扣除負基底；`auto_mask` 自動遮罩模組縫隙、壞點與束擋陰影。
+2. **多尺度畫布階梯 (`R2`)**：從 `≤ 520 px` 起跑，遇分叉風險自動升級至 `ceil(maxdim/2)`。
+3. **零先驗定心與物相仲裁**：銳度/Kåsa 守衛、徑向對稱+射線多種子共識投票與 Pearson 譜相關 `ps`。
+4. **全環與部分弧精修**：全環走 2D Taubin 圓擬合；離軸殘弧啟用 `1440²` 正則化傾角與兩參數差分 Pseudo-Voigt 解耦。
 
 <div align="center">
-<img src="manuscript/figures/fig1_pipeline_and_ablation.png" alt="Zero-prior pipeline and DESY 4-stage ablation" width="840">
+<img src="assets/fig1_pipeline_and_ablation.png" alt="Zero-prior pipeline and ablation" width="840">
 </div>
 
-## 凍結基線實測結果（`f608e67`）
+## 實測精度表現（冷啟動、無幾何先驗）
 
-| 基準測試集 | 實測表現（`f608e67` 冷啟動） |
+| 測試集 | 實測結果 |
 | :--- | :--- |
-| **DESY PETRA III P02.1 盲測**（13 組，230–2290 mm） | **13/13 (100%)** `LaB6`，**13/13 `< 0.12%`**，中位 **`0.030%`**（Locked OOD `0.028%`），R² `0.999999`，RMSE `0.82 mm`，角束定心 **`0.74 px`**（提升 `9.7×`） |
-| **CLS 08B1-1 真實礦物**（16 幀，4 種含砷礦物） | **16/16 (100%)** 直接收斂，**`246.90 ± 1.36 mm`**，MAD **`0.69 mm`**，`ps = +0.583..+0.879` |
-| **ESRF D2AM `MX_ceria` & `Al2O3`** | `CeO2` 純盲解 **7/7**（均差 `0.139 mm`）/ `phase_fit` **`0.1 mm`**；`Al2O3` **51/52**，`.spline` **`116.70 mm`** vs GT `116.86 mm` |
-| **跨探測器 `silx_zoo`**（已知 λ） | **5/5** 物相全中（`Pilatus2M −0.007%`、`Eiger4M +0.041%`、`Eiger9M +0.008%`） |
-| **100 例合成可辨識性邊界** | `n_vis ≥ 4`：**41/41 (100%) `≤ 1.0%`**，**40/41 `≤ 0.20%`**，中位 **`0.0010%`**；`n_vis ≤ 3` 僅 `27.1%` |
-| **與無加權 `pyFAI` 24 幀對比** | 零初值 `pyFAI` **3/24 (12.5%)** → 本引擎 **24/24 (100%)**（`0.033%`）→ 驅動 `pyFAI` **24/24 (100%)**（**`0.006%` / `0.11 px`**） |
+| **DESY PETRA III P02.1**（13 組，230–2290 mm） | **13/13 (100%)** `LaB6`，**13/13 `< 0.12%`**，中位 **`0.030%`**，R² `0.999999`，角束定心 **`0.74 px`** |
+| **CLS 08B1-1 真實礦物**（16 幀，4 種含砷礦物） | **16/16 (100%)** 收斂，**`246.90 ± 1.36 mm`**，MAD **`0.69 mm`** |
+| **ESRF D2AM `MX_ceria` & `Al2O3`** | `CeO2` 盲解 **7/7**（均差 `0.139 mm`）；`Al2O3` **51/52**，`.spline` **`116.70 mm`** vs 真值 `116.86 mm` |
+| **跨探測器 `silx_zoo`** | **5/5** 物相命中（`Pilatus2M −0.007%`、`Eiger4M +0.041%`、`Eiger9M +0.008%`） |
+| **100 例合成掃參邊界** | 可見環 **≥ 4 條**：**41/41 (100%) `≤ 1.0%`**，**40/41 `≤ 0.20%`**，中位 **`0.0010%`**；`≤ 3` 環僅 `27.1%` |
+| **與無加權 `pyFAI` 24 幀對比** | 零初值 `pyFAI` **3/24 (12.5%)** → 本工具 **24/24 (100%)**（`0.033%`）→ 接續 `pyFAI` 達 **`0.006%` / `0.11 px`** |
 
 <details>
-<summary><b>更多論文主圖（DESY 盲測 · 可辨識性 · 跨光源 · pyFAI 對比）</b></summary>
+<summary><b>展開更多測試圖表</b></summary>
 
 <div align="center">
-<img src="manuscript/figures/fig2_desy_blind_validation.png" width="800"><br><br>
-<img src="manuscript/figures/fig3_identifiability_bound.png" width="800"><br><br>
-<img src="manuscript/figures/fig4_multifacility_benchmarks.png" width="820"><br><br>
-<img src="manuscript/figures/fig5_pyfai_comparison.png" width="820">
+<img src="assets/fig2_desy_blind_validation.png" width="800"><br><br>
+<img src="assets/fig3_identifiability_bound.png" width="800"><br><br>
+<img src="assets/fig4_multifacility_benchmarks.png" width="820"><br><br>
+<img src="assets/fig5_pyfai_comparison.png" width="820">
 </div>
 
 </details>
@@ -69,34 +73,39 @@ pip install numpy scipy matplotlib pyFAI fabio pillow h5py PyQt5
 import fabio, numpy as np
 from probes.solver_core import auto_offset, solve_image
 from probes.auto_mask import build_auto_mask
+from probes.cake_report import export_poni_from_result
 
+# Load any 2-D powder diffraction image (TIFF / EDF / CBF / HDF5)
 img = auto_offset(fabio.open("your_frame.tif").data.astype(np.float64))
 mask, _ = build_auto_mask(img)
+
+# Zero-prior solve: provide only pixel pitch (m) and wavelength (Å)
 res = solve_image(img, px_m=150e-6, lam=0.20735, phases=None, mask=mask)
-print(res["phase"], res["sol"], res["confidence"]["tier"])
+print(f"Phase: {res['phase']}, m={res['m']}, ps={res['ps']:.3f}, tier={res['confidence']['tier']}")
 ```
 
 ```bash
-# Launch the 11-language desktop workflow GUI (zh/en/zh_TW/ja/fr/de/ru/pt/ko/es/ar)
+# 11-language visual workflow workbench (zh/en/zh_TW/ja/fr/de/ru/pt/ko/es/ar incl. RTL)
 python probes/gui_workflow.py
-# Or launch the 5-step beginner wizard
+
+# 5-step guided calibration wizard for beginners
 python probes/gui_wizard.py
 ```
 
-## 引用方式
+## 引用本軟體
 
 ```bibtex
-@article{liu2026pyfaizeroshot,
+@software{pyfai_zero_shot_2026,
   author  = {Liu, Zi'ao and Liu, Jiaru and Liu, Haixia},
-  title   = {Phase-blind, zero-prior geometric calibration of two-dimensional powder X-ray diffraction detectors across full rings and off-axis partial arcs},
+  title   = {pyfai-zero-shot: phase-blind, zero-prior geometry calibration of 2-D X-ray powder diffraction detectors},
   year    = {2026},
-  note    = {Science Advances Research Resource manuscript; frozen release commit f608e67},
-  url     = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot}
+  url     = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
+  license = {MIT}
 }
 ```
 
 ## 授權與致謝
 
-We acknowledge DESY (Hamburg, Germany), a member of the Helmholtz Association HGF, for the provision of experimental facilities. Parts of this research were carried out at PETRA III beamline P02.1. Beamtime was allocated by an In-House contingent. We thank Dr. Martin Etter and the PETRA III P02.1 beamline team for acquiring and providing the NIST SRM 660c LaB6 flat-panel calibration datasets.
+We acknowledge DESY (Hamburg, Germany), a member of the Helmholtz Association HGF, for the provision of experimental facilities. Parts of this research were carried out at PETRA III beamline P02.1. Beamtime was allocated by an In-House contingent. We thank Dr. Martin Etter and the PETRA III P02.1 beamline team for providing the NIST SRM 660c LaB6 flat-panel calibration datasets used in our benchmark validation, as well as the pyFAI community, ESRF D2AM (BM02), and CLS 08B1-1 for open diffraction datasets.
 
-<sub>MIT License（見 [LICENSE](LICENSE)）。多語言 README 已同步至 `f608e67`。</sub>
+<sub>MIT License（見 [LICENSE](LICENSE)）。</sub>
