@@ -18,11 +18,6 @@
 
 ---
 
-## 論文プレプリント（Science Advances — Research Resource 形式）
-
-- 📄 **本文 PDF（10ページ）：** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
-- 📊 **補足資料 PDF（Tables S1–S5）：** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
-- 🔒 **凍結ベンチマーク数値（`f608e67`）：** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
 ## 11言語デスクトップGUI
 
