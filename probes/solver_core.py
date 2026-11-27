@@ -1986,6 +1986,78 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
 
                     if (len(r_pv) >= max(3, m_) and not (rf5 and rf5.get("ok"))
                             and not native_2d_ok and not tilt_ok):
+                        az_cov_pv = 1.0
+                        try:
+                            from azimuthal_stacking import measure_azimuthal_coverage
+                            az_cov_pv = float(
+                                measure_azimuthal_coverage(canvas, float(sol[0]), float(sol[1])).get("coverage", 1.0)
+                            )
+                        except Exception:
+                            az_cov_pv = 1.0
+
+                        def _fit_pv_model(c_w, cx_w, cy_w, r_arr_w, k_arr_w,
+                                          D0_w, sol_rms_w, rms_raw_w, sc_w):
+                            den_w = float(np.sum(k_arr_w ** 2))
+                            if den_w <= 0:
+                                return None
+                            D_1p = float(np.sum(r_arr_w * k_arr_w) / den_w)
+                            rms_1p = float(np.sqrt(np.mean((r_arr_w - D_1p * k_arr_w) ** 2)))
+                            if (az_cov_pv < 0.50 and len(r_arr_w) >= 5
+                                    and (float(np.max(k_arr_w)) - float(np.min(k_arr_w))) >= 0.05):
+                                A_w = np.column_stack([k_arr_w, np.ones_like(k_arr_w)])
+                                D_2p, dr0 = np.linalg.lstsq(A_w, r_arr_w, rcond=None)[0]
+                                D_2p, dr0 = float(D_2p), float(dr0)
+                                rms_2p = float(np.sqrt(np.mean((r_arr_w - (D_2p * k_arr_w + dr0)) ** 2)))
+                                if (abs(dr0) <= 3.0 * sc_w
+                                        and abs(D_2p - D0_w) / max(D0_w, 1e-6) < 0.015
+                                        and rms_2p < 0.70 * rms_1p
+                                        and rms_2p < min(rms_raw_w, sol_rms_w)):
+                                    H_w, W_w = c_w.shape
+                                    yy_w, xx_w = np.mgrid[0:H_w, 0:W_w]
+                                    dx_w = xx_w - cx_w
+                                    dy_w = yy_w - cy_w
+                                    rr_w = np.hypot(dx_w, dy_w)
+                                    r_lo = max(20.0, float(np.min(r_arr_w)) * 0.8)
+                                    r_hi = float(np.max(r_arr_w)) * 1.1
+                                    sel_w = (rr_w >= r_lo) & (rr_w <= r_hi)
+                                    m_w = _mask_for(c_w.shape)
+                                    if m_w is not None and m_w.shape == c_w.shape:
+                                        sel_w = sel_w & (~m_w)
+                                    dcx_w = dcy_w = 0.0
+                                    if int(sel_w.sum()) >= 50:
+                                        ux_b = float(np.mean(dx_w[sel_w] / rr_w[sel_w]))
+                                        uy_b = float(np.mean(dy_w[sel_w] / rr_w[sel_w]))
+                                        u2 = ux_b * ux_b + uy_b * uy_b
+                                        if u2 >= 0.25:
+                                            dcx_w = (dr0 / u2) * ux_b
+                                            dcy_w = (dr0 / u2) * uy_b
+                                    return dict(
+                                        applied=True,
+                                        D_c=D_2p / sc_w,
+                                        dcx_c=dcx_w / sc_w,
+                                        dcy_c=dcy_w / sc_w,
+                                        dr0_c=dr0 / sc_w,
+                                        rms_pv_c=rms_2p / sc_w,
+                                        mode="2p",
+                                    )
+                            if (abs(D_1p - D0_w) / max(D0_w, 1e-6) < 0.01
+                                    and rms_1p < min(rms_raw_w, sol_rms_w)):
+                                return dict(
+                                    applied=True,
+                                    D_c=D_1p / sc_w,
+                                    dcx_c=0.0,
+                                    dcy_c=0.0,
+                                    dr0_c=0.0,
+                                    rms_pv_c=rms_1p / sc_w,
+                                    mode="1p",
+                                )
+                            return dict(
+                                applied=False,
+                                D_c=D_1p / sc_w,
+                                rms_pv_c=rms_1p / sc_w,
+                                mode="1p",
+                            )
+
                         used_hi_pv = False
                         if s > 2:
                             try:
@@ -2015,6 +2087,7 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                     uq_h.add(qi)
                                     ml_h.append((pks_hi[pi][0], float(k_all[qi])))
                                 if len(ml_h) >= max(3, m_):
+                                    ml_h.sort()
                                     r_raw_h = np.array([t[0] for t in ml_h], dtype=float)
                                     k_h = np.array([t[1] for t in ml_h], dtype=float)
                                     rms_raw_h = float(np.sqrt(np.mean((r_raw_h - D_pv0 * k_h) ** 2)))
@@ -2027,36 +2100,50 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                             if (pvh.get("success") and np.isfinite(r0h)
                                                     and abs(r0h - r_raw_h[idx_h]) <= 2.0 * bp_hi):
                                                 r_pv_h[idx_h] = float(r0h)
-                                    den_h = float(np.sum(k_h ** 2))
-                                    if den_h > 0:
-                                        D_pv_hi = float(np.sum(r_pv_h * k_h) / den_h)
-                                        rms_pv_hi = float(np.sqrt(np.mean((r_pv_h - D_pv_hi * k_h) ** 2)))
-                                        D_pv = D_pv_hi / sc_pv
-                                        if (abs(D_pv_hi - D_pv0) / max(D_pv0, 1e-6) < 0.01
-                                                and rms_pv_hi < min(rms_raw_h, sol_rms * sc_pv)):
-                                            sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
-                                            pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
-                                                          n_rings=int(len(r_pv_h)),
-                                                          rms_raw=rms_raw_h / sc_pv, rms_pv=rms_pv_hi / sc_pv,
-                                                          hi_res=True)
-                                            used_hi_pv = True
+                                    fit_hi = _fit_pv_model(
+                                        c_pv, cx_pv, cy_pv, r_pv_h, k_h,
+                                        D_pv0, sol_rms * sc_pv, rms_raw_h, sc_pv)
+                                    if fit_hi is not None and fit_hi["applied"]:
+                                        sol = tuple([
+                                            float(sol[0]) + fit_hi["dcx_c"],
+                                            float(sol[1]) + fit_hi["dcy_c"],
+                                            fit_hi["D_c"],
+                                            *sol[3:],
+                                        ])
+                                        pv_ref = dict(
+                                            applied=True, D_old=D_c, D_new=fit_hi["D_c"],
+                                            n_rings=int(len(r_pv_h)),
+                                            rms_raw=rms_raw_h / sc_pv, rms_pv=fit_hi["rms_pv_c"],
+                                            hi_res=True, mode=fit_hi["mode"],
+                                            dr0=fit_hi["dr0_c"],
+                                        )
+                                        used_hi_pv = True
                             except Exception:
                                 used_hi_pv = False
                         if not used_hi_pv:
-                            denom = float(np.sum(k_m ** 2))
-                            if denom > 0:
-                                D_pv = float(np.sum(r_pv * k_m) / denom)
-                                rms_pv = float(np.sqrt(np.mean((r_pv - D_pv * k_m) ** 2)))
-                                if (abs(D_pv - D_c) / max(D_c, 1e-6) < 0.01
-                                        and rms_pv < min(rms_raw, sol_rms)):
-                                    sol = tuple([sol[0], sol[1], D_pv, *sol[3:]])
-                                    pv_ref = dict(applied=True, D_old=D_c, D_new=D_pv,
-                                                  n_rings=int(len(r_pv)),
-                                                  rms_raw=rms_raw, rms_pv=rms_pv)
-                                else:
-                                    pv_ref = dict(applied=False, D_old=D_c, D_new=D_pv,
-                                                  n_rings=int(len(r_pv)),
-                                                  rms_raw=rms_raw, rms_pv=rms_pv)
+                            fit_lo = _fit_pv_model(
+                                canvas, float(sol[0]), float(sol[1]), r_pv, k_m,
+                                D_c, sol_rms, rms_raw, 1.0)
+                            if fit_lo is not None and fit_lo["applied"]:
+                                sol = tuple([
+                                    float(sol[0]) + fit_lo["dcx_c"],
+                                    float(sol[1]) + fit_lo["dcy_c"],
+                                    fit_lo["D_c"],
+                                    *sol[3:],
+                                ])
+                                pv_ref = dict(
+                                    applied=True, D_old=D_c, D_new=fit_lo["D_c"],
+                                    n_rings=int(len(r_pv)),
+                                    rms_raw=rms_raw, rms_pv=fit_lo["rms_pv_c"],
+                                    mode=fit_lo["mode"], dr0=fit_lo["dr0_c"],
+                                )
+                            elif fit_lo is not None:
+                                pv_ref = dict(
+                                    applied=False, D_old=D_c, D_new=fit_lo["D_c"],
+                                    n_rings=int(len(r_pv)),
+                                    rms_raw=rms_raw, rms_pv=fit_lo["rms_pv_c"],
+                                    mode=fit_lo["mode"],
+                                )
 
                     if m_ <= 5:
                         from split_half_cv import split_half_verify
