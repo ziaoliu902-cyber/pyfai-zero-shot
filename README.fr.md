@@ -18,11 +18,7 @@
 
 ---
 
-## Manuscrit & Prépublication (Science Advances — Research Resource)
 
-- 📄 **Manuscrit principal PDF (10 p.) :** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
-- 📊 **Matériel supplémentaire PDF (Tableaux S1–S5) :** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
-- 🔒 **Chiffres gelés (`f608e67`) :** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
 ## Interface graphique (11 langues)
 
