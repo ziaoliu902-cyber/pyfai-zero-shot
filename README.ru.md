@@ -18,11 +18,7 @@
 
 ---
 
-## Рукопись и препринт (Science Advances — Research Resource)
 
-- 📄 **Основная рукопись PDF (10 стр.):** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
-- 📊 **Дополнительные материалы PDF (Таблицы S1–S5):** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
-- 🔒 **Зафиксированные бенчмарки (`f608e67`):** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
 ## Настольный GUI (11 языков)
 
