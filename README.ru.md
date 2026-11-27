@@ -2,74 +2,63 @@
 
 # pyfai-zero-shot
 
-**Фазо-независимая zero-shot калибровка геометрии двумерных рентгеновских<br>детекторов по одному кадру порошковых колец**
+**Слепая геометрическая калибровка 2D-детекторов порошковой рентгеновской дифракции без априорных данных<br>для полных колец и внеосевых частичных дуг**
 
-🚫 не нужно знать калибрант &nbsp;·&nbsp; 🚫 не нужно начальное приближение геометрии &nbsp;·&nbsp; 🚫 длина волны может быть неизвестна<br>
-✅ на выходе — стандартный PONI для pyFAI &nbsp;·&nbsp; ✅ bootstrap-неопределённости
+🚫 Без указания эталона &nbsp;·&nbsp; 🚫 Без начальной геометрии &nbsp;·&nbsp; 🌍 GUI на 11 языках (вкл. арабский RTL)<br>✅ Экспорт <code>.poni</code> pyFAI &nbsp;·&nbsp; ✅ Уровни идентифицируемости &nbsp;·&nbsp; ✅ Коммит <code>f608e67</code>
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · **Русский** · [Français](README.fr.md) · [日本語](README.ja.md)
 
-[![License: MIT](https://img.shields.io/badge/лицензия-MIT-1a365d)](LICENSE)
-[![Version](https://img.shields.io/badge/версия-v0.5_preprint-1a365d)]()
+[![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
+[![Commit](https://img.shields.io/badge/frozen-f608e67-0072B2)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
-[![Built for pyFAI](https://img.shields.io/badge/для-pyFAI-013243)]()
-[![Status](https://img.shields.io/badge/статус-рукопись_в_работе-e67e22)]()
+[![GUI Languages](https://img.shields.io/badge/GUI_languages-11_(incl._RTL)-009E73)]()
+[![Manuscript](https://img.shields.io/badge/manuscript-Science_Advances_Research_Resource-D55E00)](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
 
 </div>
 
 ---
 
-## Зачем
+## Рукопись и препринт (Science Advances — Research Resource)
 
-Стандартные средства калибровки (pyFAI `calib2`, DAWN, FIT2D) предполагают
-**известный калибрант, ручную разметку колец и достаточно хорошее начальное
-приближение**. При запуске «вслепую» они попадают в самосогласованные, но
-*неверные* решения — вырождение индекса колец и дистанции — с малой
-невязкой, скрывающей ошибку. На приведённом ниже открытом бенчмарке pyFAI
-с нулевым стартом проигрывает на **11/11** кадров; этот конвейер решает
-большинство из них без вмешательства, по одному кадру, без информации
-о веществе.
+- 📄 **Основная рукопись PDF (10 стр.):** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
+- 📊 **Дополнительные материалы PDF (Таблицы S1–S5):** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
+- 🔒 **Зафиксированные бенчмарки (`f608e67`):** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
-## Как это работает
+## Настольный GUI (11 языков)
 
-**Каскад с классическим решателем на первом шаге** по библиотеке порошковых
-фаз, арбитраж — **гейт консенсуса между затравками** (cross-seed consensus):
+- **PyFAI-Workflow (`probes/gui_workflow.py`)** — 5-этапный визуальный интерфейс с авто-маской, Cake-диагностикой и переключением **11 языков** (`probes/i18n_wf.py`: zh, en, zh_TW, ja, fr, de, ru, pt, ko, es, ar с RTL).
+- **DiffBlindWizard (`probes/gui_wizard.py`)** — пошаговый мастер калибровки.
 
-1. быстрый решатель по позициям пиков стартует из центра кадра (15 мс/кадр);
-2. только при сбое включаются резервные затравки — замкнутая оценка центра
-   по радиальной симметрии, экстраполяции лучей, компенсирующие её смещение
-   при внеосевой геометрии, и, по желанию, регрессионная нейросеть;
-3. затравки голосуют; побеждает решение, независимо переоткрытое другими
-   затравками, — псевдорешения отбрасываются;
-4. уточнение наклонов + bootstrap-ресемплинг фотонов → стандартный **PONI**
-   с неопределённостями каждой величины.
+## Принцип работы
+
+1. **Предобработка:** `auto_offset` удаляет отрицательный пьедестал плоских панелей; `auto_mask` маскирует зазоры модулей, битые пиксели и тень бимстопа.
+2. **Многомасштабная лестница (`R2`):** Старт с `≤ 520 px`, автоматический переход к `ceil(maxdim/2)` при дивергенции (`s ≥ 5`, `|ΔD|/D ≥ 10%`).
+3. **Центрирование и арбитраж фаз:** Контроль резкости/Kåsa, радиальная симметрия + лучевые семена, консенсусное голосование и корреляция профиля `ps`.
+4. **Уточнение:** 2D-аппроксимация Taubin для полных колец; регуляризованный наклон `1440²` + **2-параметрическая дифференциальная модель Pseudo-Voigt** (`r_i = D tan(2θ_i) + δr_0`) для угловых дуг (`az_cov < 50%`).
 
 <div align="center">
-<img src="assets/fig1_architecture.png" alt="Архитектура конвейера" width="820">
+<img src="manuscript/figures/fig1_pipeline_and_ablation.png" alt="Zero-prior pipeline and DESY 4-stage ablation" width="840">
 </div>
 
-## Результаты одним взглядом
+## Проверенные бенчмарки (`f608e67`, холодный старт)
 
-| Бенчмарк | Результат |
-|---|---|
-| CeO₂, калибрант · 7 дистанций, 150–450 мм | средняя и худшая \|ΔD\| = **0,1 мм**, 7/7 сходятся; классический путь 15 мс/кадр |
-| Al₂O₃ · 52 статических кадра | решено 51/52 (тёмный кадр корректно отвергнут); разброс **MAD 0,45 мм**; bootstrap σ(D) = **0,47 мм**, покрытие истинных значений 6/6 |
-| Межприборный · 10 открытых снимков (8 оцениваемых) | фаза определена в **6/8**; \|ΔD\| ≤ 0,1 мм в **4/8**; наклоны ≲ 5 мрад; *каждая неудача объяснена* |
-| Независимая проверка | pyFAI с нулевым стартом проигрывает на всех **11/11** тех же кадров; запущенный из нашего решения он совпадает с нами — выигрыш даёт инициализация, а не другой движок |
-
-<div align="center">
-<img src="assets/fig2_frames_rings.png" alt="Кадры бенчмарка с подгонкой колец" width="760"><br>
-<sub>Кадры бенчмарка с подогнанными кольцами: (a) CeO₂ при 300 мм (8 сопоставленных колец); (b) среднее 52 статических кадров Al₂O₃.</sub>
-</div>
+| Набор данных | Результат (`f608e67`) |
+| :--- | :--- |
+| **DESY PETRA III P02.1** (13 сканов, 230–2290 мм) | **13/13 (100%)** `LaB6`, **13/13 `< 0.12%`**, медиана **`0.030%`** (OOD `0.028%`), R² `0.999999`, RMSE `0.82 мм`, угловой ΔC **`0.74 px`** (`9.7×`) |
+| **CLS 08B1-1 Минералы** (16 кадров, 4 минерала мышьяка) | **16/16 (100%)** прямая сходимость, **`246.90 ± 1.36 мм`**, MAD **`0.69 мм`** |
+| **ESRF D2AM `MX_ceria` и `Al2O3`** | `CeO2` слепо **7/7** (`0.139 мм`) / `phase_fit` **`0.1 мм`**; `Al2O3` **51/52**, `.spline` **`116.70 мм`** против GT `116.86 мм` |
+| **Кросс-детекторный `silx_zoo`** | **5/5** фаз (`Pilatus2M −0.007%`, `Eiger4M +0.041%`, `Eiger9M +0.008%`) |
+| **100 синтетических кадров** (`Seed = 20261120`) | Чёткий порог `n_vis ≥ 4`: **41/41 `≤ 1.0%`**, **40/41 `≤ 0.20%`**, медиана **`0.0010%`** против `n_vis ≤ 3` (`27.1%`) |
+| **Сравнение с `pyFAI`** (24 реальных кадра) | `pyFAI` без нач. геом. **3/24 (12.5%)** → `Ours` **24/24 (100%)** (`0.033%`) → `pyFAI` с нашей инициализацией **24/24 (100%)** (**`0.006%` / `0.11 px`**) |
 
 <details>
-<summary><b>Дополнительные свидетельства</b> (ошибки дистанции CeO₂ · независимое сравнение с pyFAI)</summary>
+<summary><b>Дополнительные рисунки из статьи</b></summary>
 
 <div align="center">
-<img src="assets/fig3_ceria_errors.png" width="520"><br>
-<sub>Ошибки CeO₂ по семи дистанциям (нативное 2D-уточнение): средняя и худшая |ΔD| = 0,1 мм.</sub><br><br>
-<img src="assets/fig8_duel_ablation.png" width="760"><br>
-<sub>Независимое сравнение с pyFAI (нулевой старт P0 против этого конвейера T, равный старт P1) и абляция компонентов.</sub>
+<img src="manuscript/figures/fig2_desy_blind_validation.png" width="800"><br><br>
+<img src="manuscript/figures/fig3_identifiability_bound.png" width="800"><br><br>
+<img src="manuscript/figures/fig4_multifacility_benchmarks.png" width="820"><br><br>
+<img src="manuscript/figures/fig5_pyfai_comparison.png" width="820">
 </div>
 
 </details>
@@ -77,78 +66,41 @@
 ## Быстрый старт
 
 ```bash
-pip install numpy scipy matplotlib pyFAI fabio pillow h5py torch
+pip install numpy scipy matplotlib pyFAI fabio pillow h5py PyQt5
 ```
 
 ```python
-import fabio
-from probes.solver_core import solve_image
+import fabio, numpy as np
+from probes.solver_core import auto_offset, solve_image
+from probes.auto_mask import build_auto_mask
 
-img = fabio.open("ваш_кадр.edf").data.astype(float)
-img[img >= 1e9] = 0.0            # маскирование сантинелов/отрицательных (zoo)
-img[img < 0] = 0.0
-
-res = solve_image(img, px_m=172e-6)      # lam=None → совместное решение λ–D
-print(res["phase"], res["sol"])          # фаза + геометрическое решение
+img = auto_offset(fabio.open("your_frame.tif").data.astype(np.float64))
+mask, _ = build_auto_mask(img)
+res = solve_image(img, px_m=150e-6, lam=0.20735, phases=None, mask=mask)
+print(res["phase"], res["sol"], res["confidence"]["tier"])
 ```
 
-Скачайте упомянутые в статье открытые тестовые снимки
-(<https://www.silx.org/pub/pyFAI/testimages/>) в `data/real/` и запустите
-пробы — каждая таблица в `probes/results/` воспроизводится детерминированно
-(фиксированные зерна).
-
-| Точка входа | Назначение |
-|---|---|
-| `probes/solver_core.py` | единый вход `solve_image()` (выбор холста + zero-shot-безопасный fallback) |
-| `probes/zoo_run.py` | межприборный бенчмарк (тестовые снимки silx) |
-| `probes/phase_map.py` | карта условий (экспозиция / наклон / охват) |
-| `probes/ablation8.py` | абляция компонентов (стресс-набор) |
-| `probes/_pyfai_duel.py` | независимое сравнение с pyFAI |
-| `generators/train.py` | обучение NN-инициализатора (синтетика) |
-
-## Структура репозитория
-
+```bash
+# Launch the 11-language desktop workflow GUI (zh/en/zh_TW/ja/fr/de/ru/pt/ko/es/ar)
+python probes/gui_workflow.py
+# Or launch the 5-step beginner wizard
+python probes/gui_wizard.py
 ```
-torchfai/      библиотека решателя (фазы, симулятор, уточнение, модель)
-probes/        бенчмарк-пробы, скрипты фигур, GUI-решатель
-  results/     полные таблицы результатов (.md/.json/.txt) + эталонные PONI
-generators/    генераторы обучающих данных для NN + инструменты слияния
-docs/          технические документы-свидетельства (журналы экспериментов)
-manuscript/    черновик статьи v0.5 (Markdown)
-assets/        иллюстрации к этому README
-```
-
-## Приглашение к слепому тесту
-
-> Мы собираем **1–2 архивных кадра + их эталонные .poni** с любых бимлайнов —
-> любой детектор, калибрант, дистанция, длина волны, год. Вы присылаете
-> снимок и известную калибровку; мы решаем полностью вслепую и возвращаем
-> ΔD, положение пучка, наклоны, готовый к работе PONI, интервалы
-> неопределённостей и определение фазы. Эталон мы не видим, пока наше
-> решение не зафиксировано и не снабжено меткой времени. **Отрицательные
-> результаты публикуются как есть** — с объяснением причины, а не оправданием.
-
-**Контакты:** Ziao Liu · ziaoliu902@gmail.com
 
 ## Цитирование
 
 ```bibtex
-@software{pyfai_zero_shot_2026,
-  author = {Liu, Ziao},
-  title  = {pyfai-zero-shot: phase-blind, zero-shot geometry calibration
-            of 2-D X-ray detectors from powder rings},
-  year   = {2026},
-  url    = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
-  note   = {v0.5}
+@article{liu2026pyfaizeroshot,
+  author  = {Liu, Zi'ao and Liu, Jiaru and Liu, Haixia},
+  title   = {Phase-blind, zero-prior geometric calibration of two-dimensional powder X-ray diffraction detectors across full rings and off-axis partial arcs},
+  year    = {2026},
+  note    = {Science Advances Research Resource manuscript; frozen release commit f608e67},
+  url     = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot}
 }
 ```
 
 ## Лицензия и благодарности
 
-MIT (см. [LICENSE](LICENSE)). Кадры бенчмарка — открыто распространяемые
-тестовые снимки pyFAI (silx.org, сняты на станции D2AM/BM02, ESRF); проект
-является независимым пользователем pyFAI и не связан с командой pyFAI.
+We acknowledge DESY (Hamburg, Germany), a member of the Helmholtz Association HGF, for the provision of experimental facilities. Parts of this research were carried out at PETRA III beamline P02.1. Beamtime was allocated by an In-House contingent. We thank Dr. Martin Etter and the PETRA III P02.1 beamline team for acquiring and providing the NIST SRM 660c LaB6 flat-panel calibration datasets.
 
-<sub>Рукопись (v0.5) — черновик в работе, рецензированию не подвергался.
-Многоязычные README поддерживаются вручную; определяющей является
-английская версия.</sub>
+<sub>Лицензия MIT ([LICENSE](LICENSE)). Синхронизировано с коммитом `f608e67`.</sub>

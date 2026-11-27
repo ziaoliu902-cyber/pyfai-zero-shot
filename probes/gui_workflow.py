@@ -4,6 +4,9 @@
 将衍射几何盲解封装为 5 个可视化流程图节点：
   ① 数据导入 → ② 掩膜与畸变 → ③ 自动标定 → ④ Cake 体检 → ⑤ 导出结果
 点击任意节点可查看/配置该步参数与输出摘要，也可点击【一键运行全流程】自动贯通执行。
+
+界面文案经 i18n_wf 词条表本地化（11 种语言，菜单栏「语言/Language」实时切换并重翻译；
+语言选择持久化到 QSettings，首次启动按系统区域自动挑选）。
 """
 import os
 import sys
@@ -43,6 +46,8 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt5.QtCore import QPointF
 from PyQt5.QtWidgets import (
+    QAction,
+    QActionGroup,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -73,6 +78,7 @@ if "Microsoft YaHei" not in matplotlib.rcParams.get("font.sans-serif", []):
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 import theme
+from i18n_wf import LANG_NAMES, get_lang, init_lang, is_rtl, localize_conf, set_lang, tr
 from auto_mask import build_auto_mask, detect_beamstop_shadow
 from cake_report import (
     _geom_from_res,
@@ -90,25 +96,26 @@ from poni_out import _lam_A, fit_tilt, make_pyfai_fwd, write_poni
 from solver_core import _r_model, auto_offset, ring_radii, solve_image, to_canvas
 from torchfai.phases import PHASES, PHASE_NAMES, phase_qs
 
-IMG_FILTER = "衍射图 (*.edf *.cbf *.h5 *.hdf5 *.tif *.tiff *.mar* *.img *.png *.jpg);;所有 (*.*)"
-SPL_FILTER = "pyFAI 畸变文件 (*.spline);;所有 (*.*)"
-MASK_FILTER = "Mask 文件 (*.npy *.h5 *.hdf5 *.edf *.tif *.tiff *.cbf);;所有 (*.*)"
-PHASE_FILTER = "标样文件 (*.D *.d *.cif);;所有 (*.*)"
-
-STAGES = [
-    ("1. 数据导入", "选择单帧或多帧衍射图"),
-    ("2. 掩膜与畸变", "自动屏蔽坏点/束挡与可选畸变"),
-    ("3. 自动标定", "物相识别与几何参数求解"),
-    ("4. Cake 体检", "展开均匀度与置信度核验"),
-    ("5. 导出结果", "保存 .poni / 2×2 体检图"),
+# 界面文案一律经 i18n_wf.tr 取词（11 语言实时切换）；含通配符的文件过滤器、
+# 流程节点名等也在调用点取 tr，而非模块级常量——否则冻结在 import 时刻的语言。
+STAGE_KEYS = [
+    ("st1_t", "st1_s"), ("st2_t", "st2_s"), ("st3_t", "st3_s"),
+    ("st4_t", "st4_s"), ("st5_t", "st5_s"),
 ]
 
+
+def _stages():
+    """按当前语言返回 5 个流程节点的 (标题, 默认副标题)。"""
+    return [(tr(t), tr(s)) for t, s in STAGE_KEYS]
+
+
 STATE_STYLE = {
-    "idle": ("待运行", "#9CA3AF", "#F3F4F6"),
-    "running": ("运行中", "#2563EB", "#DBEAFE"),
-    "done": ("已完成", "#0A7D0A", "#DCFCE7"),
-    "skipped": ("已跳过", "#6B7280", "#E5E7EB"),
-    "error": ("失败", "#C2410C", "#FFEDD5"),
+    # 状态 → (徽标词条键, 前景色, 背景色)；徽标文字在渲染时经 tr 本地化
+    "idle": ("state_idle", "#9CA3AF", "#F3F4F6"),
+    "running": ("state_running", "#2563EB", "#DBEAFE"),
+    "done": ("state_done", "#0A7D0A", "#DCFCE7"),
+    "skipped": ("state_skipped", "#6B7280", "#E5E7EB"),
+    "error": ("state_error", "#C2410C", "#FFEDD5"),
 }
 
 
@@ -158,7 +165,7 @@ class FlowNodeCard(QFrame):
         top.setSpacing(6)
         self.lbl_title = QLabel(title)
         self.lbl_title.setStyleSheet("font-weight: 700; font-size: 9.8pt;")
-        self.lbl_badge = QLabel("待运行")
+        self.lbl_badge = QLabel("")  # 文字由 _apply_style 经 tr 填充
         self.lbl_badge.setAlignment(Qt.AlignCenter)
         top.addWidget(self.lbl_title, 1)
         top.addWidget(self.lbl_badge, 0)
@@ -178,6 +185,11 @@ class FlowNodeCard(QFrame):
         self.selected = bool(sel)
         self._apply_style()
 
+    def set_texts(self, title, sub):
+        """语言切换后由窗口统一重设标题/副标题。"""
+        self.lbl_title.setText(title)
+        self.lbl_sub.setText(sub)
+
     def set_status(self, state, summary=None):
         self.state = state if state in STATE_STYLE else "idle"
         if summary is not None:
@@ -186,7 +198,8 @@ class FlowNodeCard(QFrame):
 
     def _apply_style(self):
         t = theme.TOKENS["light"]
-        label, fg, bg = STATE_STYLE[self.state]
+        label_key, fg, bg = STATE_STYLE[self.state]
+        label = tr(label_key)
         self.lbl_badge.setText(label)
         self.lbl_badge.setStyleSheet(
             f"color: {fg}; background: {bg}; border-radius: 9px; "
@@ -234,8 +247,8 @@ class WorkflowWorker(QThread):
 
             # ---- Stage 2: 掩膜与畸变 ----
             cur_stage = 1
-            self.stage_changed.emit(1, "running", "生成/合并掩膜…")
-            self.log_line.emit(f"[步骤2] 准备掩膜与畸变校正 (文件数={len(self.paths)})")
+            self.stage_changed.emit(1, "running", tr("sum_mask_run"))
+            self.log_line.emit(tr("log2_prepare", n=len(self.paths)))
             first_raw = auto_offset(load_any(self.paths[0]))
             mask = None
             if self.ext_mask is not None and self.ext_mask.shape == first_raw.shape:
@@ -248,27 +261,27 @@ class WorkflowWorker(QThread):
                     include_beamstop=self.auto_bs,
                 )
                 mask = m_auto if mask is None else (mask | m_auto)
-                self.log_line.emit(
-                    f"[步骤2] 自动掩膜: 缝={mst['n_gap']}, 坏点/热像素={mst['n_bad']}, "
-                    f"束挡={mst['n_beamstop']}, 合计={mst['n_total']} px ({mst['frac']*100:.1f}%)"
-                )
+                self.log_line.emit(tr(
+                    "log2_auto", g=mst["n_gap"], b=mst["n_bad"], s=mst["n_beamstop"],
+                    t=mst["n_total"], p=f"{mst['frac']*100:.1f}"))
             else:
-                self.log_line.emit("[步骤2] 自动掩膜已关闭")
+                self.log_line.emit(tr("log2_off"))
             sp_tag = f" + {os.path.basename(self.spline_path)}" if self.spline_path else ""
-            mask_tag = f"{int(mask.sum())} px" if mask is not None and mask.any() else "无"
-            self.stage_changed.emit(1, "done", f"mask={mask_tag}{sp_tag}")
+            # 无掩膜时以 "0 px" 表述（语言中立），避免为「无」单独造词
+            mask_tag = f"{int(mask.sum())} px" if mask is not None and mask.any() else "0 px"
+            self.stage_changed.emit(1, "done", tr("sum_mask_done", m=mask_tag, sp=sp_tag))
 
             # ---- Stage 3: 自动标定 ----
             cur_stage = 2
-            self.stage_changed.emit(2, "running", "求解几何与物相…")
+            self.stage_changed.emit(2, "running", tr("sum_solve_run"))
             if is_multi:
-                self.log_line.emit(f"[步骤3] 启动多帧抗差联合标定 ({len(self.paths)} 帧)…")
+                self.log_line.emit(tr("log3_multi_start", n=len(self.paths)))
                 mf = calibrate_multiframe(
                     self.paths, px1_m, lam=self.lam_A, px2_m=px2_m,
                     phases=self.phase_opt, spline=self.spline_path, n_workers=1,
                 )
                 if not mf.get("ok"):
-                    raise RuntimeError(mf.get("error", "多帧联合标定失败"))
+                    raise RuntimeError(str(mf.get("error") or tr("err_multifail")))
                 kept_imgs = [auto_offset(load_any(p)) for p in mf["kept_files"]]
                 img_work = np.mean(kept_imgs, axis=0).astype(np.float64)
                 if self.auto_gaps or self.auto_bad or self.auto_bs or self.ext_mask is not None:
@@ -311,19 +324,19 @@ class WorkflowWorker(QThread):
                     applied=True, dist=dist_m, poni1=poni1_m, poni2=poni2_m,
                     rot1=rot1, rot2=rot2, tilt_deg=float(mf["tilt_deg"]),
                 )
-                self.log_line.emit(
-                    f"[步骤3] 多帧完成: 保留 {mf['n_kept']}/{mf['n_total']} 帧 (暗场 {mf['n_dark']}, 离群 {mf['n_outliers']}) | "
-                    f"相={ph} | D={mf['dist_mm']:.3f} mm | rot=({rot1*1e3:+.2f}, {rot2*1e3:+.2f}) mrad"
-                )
+                self.log_line.emit(tr(
+                    "log3_multi_done", k=mf["n_kept"], n=mf["n_total"], d=mf["n_dark"],
+                    o=mf["n_outliers"], ph=ph, dmm=f"{mf['dist_mm']:.3f}",
+                    r1=f"{rot1*1e3:+.2f}", r2=f"{rot2*1e3:+.2f}"))
             else:
                 img_work = first_raw
-                self.log_line.emit("[步骤3] 启动单帧几何求解…")
+                self.log_line.emit(tr("log3_single_start"))
                 res = solve_image(
                     img_work, px1_m, lam=self.lam_A, phases=self.phase_opt,
                     px2_m=px2_m, mask=mask, d_ref_mm=self.d_ref_mm,
                 )
                 if not res:
-                    raise RuntimeError("求解失败：未能匹配足够衍射环，请检查像素尺寸、波长或改用多帧堆叠。")
+                    raise RuntimeError(tr("err_solvefail"))
                 dist_m, poni1_m, poni2_m, rot1, rot2 = _geom_from_res(res, px1_m, px2_m)
                 ph = res["phase"]
                 lam_u = float(res["lam"])
@@ -357,11 +370,10 @@ class WorkflowWorker(QThread):
                                 applied=True, dist=dist_m, poni1=poni1_m, poni2=poni2_m,
                                 rot1=rot1, rot2=rot2, tilt_deg=float(np.hypot(rot1, rot2) * 180 / np.pi),
                             )
-                self.log_line.emit(
-                    f"[步骤3] 单帧完成: 相={ph} | D={dist_m*1000:.3f} mm | "
-                    f"m={res['m']} | rms={res['rms']:.2f} px | rot=({rot1*1e3:+.2f}, {rot2*1e3:+.2f}) mrad"
-                )
-            self.stage_changed.emit(2, "done", f"{ph} | D={dist_m*1000:.2f} mm")
+                self.log_line.emit(tr(
+                    "log3_single_done", ph=ph, d=f"{dist_m*1000:.3f}", m=res["m"],
+                    rms=f"{res['rms']:.2f}", r1=f"{rot1*1e3:+.2f}", r2=f"{rot2*1e3:+.2f}"))
+            self.stage_changed.emit(2, "done", tr("sum_geom_done", ph=ph, d=f"{dist_m*1000:.2f}"))
 
             # ---- 二段式离轴束挡掩膜（步骤 3 解出真实束心后补抓角落束挡阴影） ----
             cx_nat = poni2_m / px2_m - 0.5
@@ -371,14 +383,14 @@ class WorkflowWorker(QThread):
                 m_bs_off = detect_beamstop_shadow(img_work, cx=cx_nat, cy=cy_nat)
                 if m_bs_off.any():
                     mask = m_bs_off if mask is None else (mask | m_bs_off)
-                    self.log_line.emit(f"[步骤3] 离轴束挡二次掩膜: +{int(m_bs_off.sum())} px")
+                    self.log_line.emit(tr("log3_bs2", n=int(m_bs_off.sum())))
                     sp_tag = f" + {os.path.basename(self.spline_path)}" if self.spline_path else ""
-                    self.stage_changed.emit(1, "done", f"mask={int(mask.sum())} px{sp_tag}")
+                    self.stage_changed.emit(1, "done", tr("sum_mask_done", m=f"{int(mask.sum())} px", sp=sp_tag))
 
             # ---- Stage 4: Cake 体检 ----
             cur_stage = 3
-            self.stage_changed.emit(3, "running", "展开 Cake 与质量评分…")
-            self.log_line.emit("[步骤4] 正在生成 q-χ Cake 展开图与 SNIP 峰位核验…")
+            self.stage_changed.emit(3, "running", tr("sum_cake_run"))
+            self.log_line.emit(tr("log4_start"))
             cake = compute_cake(
                 img_work, dist_m, poni1_m, poni2_m, rot1=rot1, rot2=rot2,
                 px1=px1_m, px2=px2_m, lam_A=lam_u, mask=mask, spline=self.spline_path,
@@ -408,12 +420,14 @@ class WorkflowWorker(QThread):
             )
             res["confidence"] = conf
             dq_txt = f"{sc['dq_med']:.4f} Å⁻¹" if np.isfinite(sc["dq_med"]) else "N/A"
-            self.log_line.emit(
-                f"[步骤4] 体检完成: refined={sc['ps_refined']:.3f} | |Δq|_med={dq_txt} ({sc['n_peak_hit']} 峰) | "
-                f"置信度={conf['tier']} ({conf['badge']})"
-            )
-            self.stage_changed.emit(3, "done", f"{conf['tier']} | refined={sc['ps_refined']:.2f}")
-            self.stage_changed.emit(4, "idle", "点击导出 .poni 或诊断图")
+            # 置信度 tier/badge/说明在发射前先经 localize_conf 转成当前语言
+            loc = localize_conf(conf, has_d_ref=bool(res.get("d_ref_ok", False)))
+            self.log_line.emit(tr(
+                "log4_done", p=f"{sc['ps_refined']:.3f}", dq=dq_txt, n=sc["n_peak_hit"],
+                tier=loc["tier"], badge=loc["badge"]))
+            self.stage_changed.emit(3, "done", tr(
+                "sum_cake_done", tier=loc["tier"], p=f"{sc['ps_refined']:.2f}"))
+            self.stage_changed.emit(4, "idle", tr("sum_export_idle"))
 
             payload = dict(
                 img=img_work,
@@ -441,7 +455,10 @@ class WorkflowWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("pyFAI-Blind · 流程图式标定工作台")
+        # 语言初始化：QSettings 记忆 > 系统区域；阿拉伯语等 RTL 布局镜像
+        cur_lang = init_lang()
+        self.setWindowTitle(tr("app_title"))
+        QApplication.setLayoutDirection(Qt.RightToLeft if is_rtl() else Qt.LeftToRight)
         self.resize(1340, 820)
         self.paths = []
         self.img_preview = None
@@ -450,6 +467,15 @@ class WorkflowWindow(QMainWindow):
         self.spline_path = None
         self.payload = None
         self.worker = None
+        # 语言切换重翻译所需的动态状态快照（_retranslate 据此再生成动态文案）
+        self._card_states = ["idle"] * 5
+        self._n_files = 0
+        self._first_name = ""
+        self._meta_src = None          # 首帧元数据来源串（None → meta_none）
+        self._qa_state = "wait"        # wait / reset / full
+        self._exp_last = None          # ("poni"|"fig", 绝对路径)
+        self._ext_mask_name = None
+        self._build_lang_menu(cur_lang)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -458,13 +484,13 @@ class WorkflowWindow(QMainWindow):
         root_lay.setSpacing(8)
 
         # ---- 顶部交互式流程图工具条 ----
-        top_box = QGroupBox("标定工作流（点击节点可配置参数或查看详情）")
-        top_lay = QHBoxLayout(top_box)
+        self.top_box = QGroupBox(tr("flow_box"))
+        top_lay = QHBoxLayout(self.top_box)
         top_lay.setContentsMargins(10, 12, 10, 10)
         top_lay.setSpacing(6)
 
         self.cards = []
-        for idx, (title, sub) in enumerate(STAGES):
+        for idx, (title, sub) in enumerate(_stages()):
             if idx > 0:
                 top_lay.addWidget(FlowArrow())
             card = FlowNodeCard(idx, title, sub)
@@ -474,17 +500,17 @@ class WorkflowWindow(QMainWindow):
 
         ctrl_col = QVBoxLayout()
         ctrl_col.setSpacing(6)
-        self.b_run_all = QPushButton("▶ 一键运行全流程")
+        self.b_run_all = QPushButton(tr("run_all"))
         self.b_run_all.setProperty("primary", True)
         self.b_run_all.setMinimumHeight(34)
         self.b_run_all.setEnabled(False)
         self.b_run_all.clicked.connect(self.run_all)
-        self.b_reset = QPushButton("重置")
+        self.b_reset = QPushButton(tr("reset"))
         self.b_reset.clicked.connect(self.reset_workflow)
         ctrl_col.addWidget(self.b_run_all)
         ctrl_col.addWidget(self.b_reset)
         top_lay.addLayout(ctrl_col)
-        root_lay.addWidget(top_box)
+        root_lay.addWidget(self.top_box)
 
         self.pb = QProgressBar()
         self.pb.setRange(0, 0)
@@ -517,10 +543,10 @@ class WorkflowWindow(QMainWindow):
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
 
-        self.tabs.addTab(tab_2d, "2D 衍射图与环叠图")
-        self.tabs.addTab(tab_cake, "q-χ Cake 展开图")
-        self.tabs.addTab(tab_1d, "1D 径向积分谱")
-        self.tabs.addTab(self.txt_log, "运行日志")
+        self.tabs.addTab(tab_2d, tr("tab_2d"))
+        self.tabs.addTab(tab_cake, tr("tab_cake"))
+        self.tabs.addTab(tab_1d, tr("tab_1d"))
+        self.tabs.addTab(self.txt_log, tr("tab_log"))
 
         splitter.addWidget(left_wrap)
         splitter.addWidget(self.tabs)
@@ -528,7 +554,7 @@ class WorkflowWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         root_lay.addWidget(splitter, 1)
 
-        self.status_lbl = QLabel("请先在步骤 1 导入衍射图，或直接点击示例数据试跑。")
+        self.status_lbl = QLabel(tr("status_idle"))
         self.status_lbl.setProperty("muted", True)
         root_lay.addWidget(self.status_lbl)
 
@@ -549,10 +575,10 @@ class WorkflowWindow(QMainWindow):
 
     # ---- 构建 5 个阶段的配置面板 ----
     def _build_stage0(self):
-        box = QGroupBox("步骤 1 · 数据导入（单帧或同工位多帧）")
-        lay = QVBoxLayout(box)
+        self.gb0 = QGroupBox(tr("s0_title"))
+        lay = QVBoxLayout(self.gb0)
 
-        self.drop_zone = QLabel("将衍射图拖放到此处\n（选 1 张 = 单帧盲解 | 选 ≥2 张 = 多帧抗差联合）")
+        self.drop_zone = QLabel(tr("s0_drop"))
         self.drop_zone.setAlignment(Qt.AlignCenter)
         self.drop_zone.setMinimumHeight(130)
         self.drop_zone.setAcceptDrops(True)
@@ -565,175 +591,180 @@ class WorkflowWindow(QMainWindow):
         )
         lay.addWidget(self.drop_zone)
 
-        b_pick = QPushButton("选择衍射图文件 (单帧 / 多选)…")
-        b_pick.setProperty("primary", True)
-        b_pick.clicked.connect(self.pick_images)
-        lay.addWidget(b_pick)
+        self.b_pick0 = QPushButton(tr("s0_pick"))
+        self.b_pick0.setProperty("primary", True)
+        self.b_pick0.clicked.connect(self.pick_images)
+        lay.addWidget(self.b_pick0)
 
-        self.lbl_file_info = QLabel("尚未导入文件")
+        self.lbl_file_info = QLabel(tr("s0_nofile"))
         self.lbl_file_info.setWordWrap(True)
         self.lbl_file_info.setProperty("muted", True)
         lay.addWidget(self.lbl_file_info)
 
-        demo_box = QGroupBox("快速体验内置真图")
-        dl = QVBoxLayout(demo_box)
-        self.b_demo_ceria = QPushButton("载入 Pilatus6M 示例 (ceria_250)")
+        self.demo_box = QGroupBox(tr("s0_demo"))
+        dl = QVBoxLayout(self.demo_box)
+        self.b_demo_ceria = QPushButton(tr("s0_demo_ceria"))
         self.b_demo_ceria.clicked.connect(self.load_demo_ceria)
-        self.b_demo_alumina = QPushButton("载入 FReLoN 5帧示例 (alumina + spline)")
+        self.b_demo_alumina = QPushButton(tr("s0_demo_alumina"))
         self.b_demo_alumina.clicked.connect(self.load_demo_alumina)
         dl.addWidget(self.b_demo_ceria)
         dl.addWidget(self.b_demo_alumina)
-        lay.addWidget(demo_box)
+        lay.addWidget(self.demo_box)
 
         lay.addStretch(1)
-        b_next = QPushButton("下一步：掩膜与畸变 →")
-        b_next.clicked.connect(lambda: self.select_stage(1))
-        lay.addWidget(b_next)
-        return box
+        self.b_next0 = QPushButton(tr("s0_next"))
+        self.b_next0.clicked.connect(lambda: self.select_stage(1))
+        lay.addWidget(self.b_next0)
+        return self.gb0
 
     def _build_stage1(self):
-        box = QGroupBox("步骤 2 · 掩膜与光学畸变校正")
-        lay = QVBoxLayout(box)
+        self.gb1 = QGroupBox(tr("s1_title"))
+        lay = QVBoxLayout(self.gb1)
 
-        self.chk_gaps = QCheckBox("自动屏蔽模块缝 / 死区间隙")
+        self.chk_gaps = QCheckBox(tr("s1_gaps"))
         self.chk_gaps.setChecked(True)
-        self.chk_bad = QCheckBox("自动屏蔽坏点 / 负值 / 热像素")
+        self.chk_bad = QCheckBox(tr("s1_bad"))
         self.chk_bad.setChecked(True)
-        self.chk_bs = QCheckBox("自动识别束流挡盘与挡杆阴影")
+        self.chk_bs = QCheckBox(tr("s1_bs"))
         self.chk_bs.setChecked(True)
         lay.addWidget(self.chk_gaps)
         lay.addWidget(self.chk_bad)
         lay.addWidget(self.chk_bs)
 
         row_m = QHBoxLayout()
-        b_extm = QPushButton("额外载入外部 Mask…")
-        b_extm.clicked.connect(self.pick_ext_mask)
-        b_clrm = QPushButton("清除")
-        b_clrm.clicked.connect(self.clear_ext_mask)
-        row_m.addWidget(b_extm, 1)
-        row_m.addWidget(b_clrm)
+        self.b_extm = QPushButton(tr("s1_extm"))
+        self.b_extm.clicked.connect(self.pick_ext_mask)
+        self.b_clrm = QPushButton(tr("s1_clear"))
+        self.b_clrm.clicked.connect(self.clear_ext_mask)
+        row_m.addWidget(self.b_extm, 1)
+        row_m.addWidget(self.b_clrm)
         lay.addLayout(row_m)
-        self.lbl_ext_mask = QLabel("外部 Mask：无")
+        self.lbl_ext_mask = QLabel(tr("s1_extm_none"))
         self.lbl_ext_mask.setProperty("muted", True)
         lay.addWidget(self.lbl_ext_mask)
 
-        b_prev_mask = QPushButton("生成并预览自动 Mask")
-        b_prev_mask.clicked.connect(self.preview_auto_mask)
-        lay.addWidget(b_prev_mask)
+        self.b_prev_mask = QPushButton(tr("s1_preview"))
+        self.b_prev_mask.clicked.connect(self.preview_auto_mask)
+        lay.addWidget(self.b_prev_mask)
 
-        sp_box = QGroupBox("探测器光学畸变文件（可选 .spline）")
-        sl = QVBoxLayout(sp_box)
+        self.sp_box = QGroupBox(tr("s1_spbox"))
+        sl = QVBoxLayout(self.sp_box)
         row_sp = QHBoxLayout()
-        b_sp = QPushButton("选择 .spline 文件…")
-        b_sp.clicked.connect(self.pick_spline)
-        b_sp_clr = QPushButton("不用畸变校正")
-        b_sp_clr.clicked.connect(self.clear_spline)
-        row_sp.addWidget(b_sp, 1)
-        row_sp.addWidget(b_sp_clr)
+        self.b_sp = QPushButton(tr("s1_sp_pick"))
+        self.b_sp.clicked.connect(self.pick_spline)
+        self.b_sp_clr = QPushButton(tr("s1_sp_off"))
+        self.b_sp_clr.clicked.connect(self.clear_spline)
+        row_sp.addWidget(self.b_sp, 1)
+        row_sp.addWidget(self.b_sp_clr)
         sl.addLayout(row_sp)
-        self.lbl_spline = QLabel("未载入（Pilatus / Eiger 平板探测器留空即可）")
+        self.lbl_spline = QLabel(tr("s1_sp_none"))
         self.lbl_spline.setWordWrap(True)
         self.lbl_spline.setProperty("muted", True)
         sl.addWidget(self.lbl_spline)
-        lay.addWidget(sp_box)
+        lay.addWidget(self.sp_box)
 
         lay.addStretch(1)
-        b_next = QPushButton("下一步：自动标定 →")
-        b_next.clicked.connect(lambda: self.select_stage(2))
-        lay.addWidget(b_next)
-        return box
+        self.b_next1 = QPushButton(tr("s1_next"))
+        self.b_next1.clicked.connect(lambda: self.select_stage(2))
+        lay.addWidget(self.b_next1)
+        return self.gb1
 
     def _build_stage2(self):
-        box = QGroupBox("步骤 3 · 标定参数与运行求解")
-        lay = QVBoxLayout(box)
+        self.gb2 = QGroupBox(tr("s2_title"))
+        lay = QVBoxLayout(self.gb2)
 
         grid = QGridLayout()
-        grid.addWidget(QLabel("像素尺寸 Y (µm):"), 0, 0)
+        self.lbl_px1 = QLabel(tr("s2_px1"))
+        grid.addWidget(self.lbl_px1, 0, 0)
         self.e_px1 = QLineEdit("172")
         grid.addWidget(self.e_px1, 0, 1)
 
-        grid.addWidget(QLabel("像素尺寸 X (µm):"), 1, 0)
+        self.lbl_px2 = QLabel(tr("s2_px2"))
+        grid.addWidget(self.lbl_px2, 1, 0)
         self.e_px2 = QLineEdit("")
-        self.e_px2.setPlaceholderText("留空默认等于 Y")
+        self.e_px2.setPlaceholderText(tr("s2_px2_ph"))
         grid.addWidget(self.e_px2, 1, 1)
 
-        grid.addWidget(QLabel("波长 / 能量:"), 2, 0)
+        self.lbl_lam = QLabel(tr("s2_lam"))
+        grid.addWidget(self.lbl_lam, 2, 0)
         row_lam = QHBoxLayout()
         self.e_lam = QLineEdit("")
-        self.e_lam.setPlaceholderText("例如 0.9724")
+        self.e_lam.setPlaceholderText(tr("s2_lam_ph"))
         self.cb_lam_unit = QComboBox()
         self.cb_lam_unit.addItems(["Å", "keV"])
         row_lam.addWidget(self.e_lam, 1)
         row_lam.addWidget(self.cb_lam_unit)
         grid.addLayout(row_lam, 2, 1)
 
-        grid.addWidget(QLabel("标样物相:"), 3, 0)
+        self.lbl_phase = QLabel(tr("s2_phase"))
+        grid.addWidget(self.lbl_phase, 3, 0)
         self.cb_phase = QComboBox()
         self._refresh_phase_combo()
         grid.addWidget(self.cb_phase, 3, 1)
 
-        grid.addWidget(QLabel("近似距离 (mm):"), 4, 0)
+        self.lbl_dref = QLabel(tr("s2_dref"))
+        grid.addWidget(self.lbl_dref, 4, 0)
         self.e_dref = QLineEdit("")
-        self.e_dref.setPlaceholderText("可选，如 2600（少环/AgBh 消歧用）")
+        self.e_dref.setPlaceholderText(tr("s2_dref_ph"))
         grid.addWidget(self.e_dref, 4, 1)
         lay.addLayout(grid)
 
-        b_imp = QPushButton("导入自定义标样 (.D / .cif)…")
-        b_imp.clicked.connect(self.import_custom_phase)
-        lay.addWidget(b_imp)
+        self.b_imp = QPushButton(tr("s2_imp"))
+        self.b_imp.clicked.connect(self.import_custom_phase)
+        lay.addWidget(self.b_imp)
 
-        self.lbl_calib_mode = QLabel("求解模式：待导入图像后自动判断（单帧 / 多帧联合）")
+        self.lbl_calib_mode = QLabel(tr("s2_mode_wait"))
         self.lbl_calib_mode.setWordWrap(True)
         self.lbl_calib_mode.setProperty("muted", True)
         lay.addWidget(self.lbl_calib_mode)
 
         lay.addStretch(1)
-        b_go = QPushButton("▶ 立即运行流水线")
-        b_go.setProperty("primary", True)
-        b_go.clicked.connect(self.run_all)
-        lay.addWidget(b_go)
-        return box
+        self.b_go = QPushButton(tr("s2_go"))
+        self.b_go.setProperty("primary", True)
+        self.b_go.clicked.connect(self.run_all)
+        lay.addWidget(self.b_go)
+        return self.gb2
 
     def _build_stage3(self):
-        box = QGroupBox("步骤 4 · Cake 展开与质量体检")
-        lay = QVBoxLayout(box)
+        self.gb3 = QGroupBox(tr("s3_title"))
+        lay = QVBoxLayout(self.gb3)
 
         self.txt_qa = QPlainTextEdit()
         self.txt_qa.setReadOnly(True)
-        self.txt_qa.setPlainText("尚未运行标定。完成步骤 1~3 后将在此展示几何参数与体检指标。")
+        self.txt_qa.setPlainText(tr("s3_wait"))
         lay.addWidget(self.txt_qa, 1)
 
         row_t = QHBoxLayout()
-        b_t2d = QPushButton("看 2D 叠环")
-        b_t2d.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
-        b_tcake = QPushButton("看 Cake")
-        b_tcake.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        b_t1d = QPushButton("看 1D 谱")
-        b_t1d.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
-        row_t.addWidget(b_t2d)
-        row_t.addWidget(b_tcake)
-        row_t.addWidget(b_t1d)
+        self.b_t2d = QPushButton(tr("s3_b2d"))
+        self.b_t2d.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
+        self.b_tcake = QPushButton(tr("s3_bcake"))
+        self.b_tcake.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.b_t1d = QPushButton(tr("s3_b1d"))
+        self.b_t1d.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        row_t.addWidget(self.b_t2d)
+        row_t.addWidget(self.b_tcake)
+        row_t.addWidget(self.b_t1d)
         lay.addLayout(row_t)
 
-        b_next = QPushButton("下一步：导出结果 →")
-        b_next.clicked.connect(lambda: self.select_stage(4))
-        lay.addWidget(b_next)
-        return box
+        self.b_next3 = QPushButton(tr("s3_next"))
+        self.b_next3.clicked.connect(lambda: self.select_stage(4))
+        lay.addWidget(self.b_next3)
+        return self.gb3
 
     def _build_stage4(self):
-        box = QGroupBox("步骤 5 · 导出标准成果")
-        lay = QVBoxLayout(box)
+        self.gb4 = QGroupBox(tr("s4_title"))
+        lay = QVBoxLayout(self.gb4)
 
-        self.b_exp_poni = QPushButton("导出 .poni 标定文件（含 Mask / Spline）")
+        self.b_exp_poni = QPushButton(tr("s4_poni"))
         self.b_exp_poni.setProperty("primary", True)
         self.b_exp_poni.setEnabled(False)
         self.b_exp_poni.clicked.connect(self.export_poni)
 
-        self.b_exp_fig = QPushButton("导出 2×2 标定体检图 (.png / .pdf)")
+        self.b_exp_fig = QPushButton(tr("s4_fig"))
         self.b_exp_fig.setEnabled(False)
         self.b_exp_fig.clicked.connect(self.export_diag_fig)
 
-        self.b_copy_txt = QPushButton("复制参数摘要到剪贴板")
+        self.b_copy_txt = QPushButton(tr("s4_copy"))
         self.b_copy_txt.setEnabled(False)
         self.b_copy_txt.clicked.connect(self.copy_summary)
 
@@ -741,18 +772,295 @@ class WorkflowWindow(QMainWindow):
         lay.addWidget(self.b_exp_fig)
         lay.addWidget(self.b_copy_txt)
 
-        self.lbl_export = QLabel("运行全流程完成后即可在此一键导出。")
+        self.lbl_export = QLabel(tr("s4_hint"))
         self.lbl_export.setWordWrap(True)
         self.lbl_export.setProperty("muted", True)
         lay.addWidget(self.lbl_export)
         lay.addStretch(1)
-        return box
+        return self.gb4
 
     # ---- 交互逻辑 ----
     def select_stage(self, idx):
         self.stack.setCurrentIndex(idx)
         for i, c in enumerate(self.cards):
             c.set_selected(i == idx)
+
+    # ---- 多语言：菜单构建 / 切换 / 全量重翻译 ----
+    def _build_lang_menu(self, cur_lang):
+        """菜单栏「语言/Language」：母语名常显，互斥单选。"""
+        self.menu_lang = self.menuBar().addMenu(tr("menu_lang"))
+        grp = QActionGroup(self)
+        self._lang_acts = []
+        for code, name in LANG_NAMES.items():
+            act = QAction(name, self)
+            act.setCheckable(True)
+            act.setData(code)
+            act.setChecked(code == cur_lang)
+            act.triggered.connect(lambda _=False, c=code: self.switch_lang(c))
+            grp.addAction(act)
+            self.menu_lang.addAction(act)
+            self._lang_acts.append(act)
+
+    def switch_lang(self, code):
+        """切换语言并全量重翻译界面；语言选择持久化，重启后沿用。"""
+        if code == get_lang():
+            return
+        set_lang(code)
+        QApplication.setLayoutDirection(Qt.RightToLeft if is_rtl() else Qt.LeftToRight)
+        self._apply_mpl_font()
+        self._retranslate()
+        self.status_lbl.setText(tr("lang_changed", n=LANG_NAMES.get(code, code)))
+
+    def _apply_mpl_font(self):
+        """RTL 语种下给 matplotlib 优先安排含阿拉伯字形的西文字体。
+
+        说明：matplotlib 不做双向文本整形，图内阿拉伯文可能呈非连写形态，
+        属渲染层已知限制；Qt 部件（页签/按钮/日志）不受影响。
+        """
+        base = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
+        if is_rtl():
+            matplotlib.rcParams["font.sans-serif"] = ["Segoe UI", "Tahoma", "Arial"] + base
+        else:
+            matplotlib.rcParams["font.sans-serif"] = base
+        matplotlib.rcParams["axes.unicode_minus"] = False
+
+    def _retranslate(self):
+        """按当前语言重设全部静态控件文本，并依据状态快照再生成动态文案。"""
+        self.setWindowTitle(tr("app_title"))
+        self.menu_lang.setTitle(tr("menu_lang"))
+        for act in self._lang_acts:
+            act.setChecked(act.data() == get_lang())
+        self.top_box.setTitle(tr("flow_box"))
+        self.b_run_all.setText(tr("run_all"))
+        self.b_reset.setText(tr("reset"))
+        self.tabs.setTabText(0, tr("tab_2d"))
+        self.tabs.setTabText(1, tr("tab_cake"))
+        self.tabs.setTabText(2, tr("tab_1d"))
+        self.tabs.setTabText(3, tr("tab_log"))
+        # 各阶段面板静态控件
+        self.gb0.setTitle(tr("s0_title"))
+        self.drop_zone.setText(tr("s0_drop"))
+        self.b_pick0.setText(tr("s0_pick"))
+        self.demo_box.setTitle(tr("s0_demo"))
+        self.b_demo_ceria.setText(tr("s0_demo_ceria"))
+        self.b_demo_alumina.setText(tr("s0_demo_alumina"))
+        self.b_next0.setText(tr("s0_next"))
+        self.gb1.setTitle(tr("s1_title"))
+        self.chk_gaps.setText(tr("s1_gaps"))
+        self.chk_bad.setText(tr("s1_bad"))
+        self.chk_bs.setText(tr("s1_bs"))
+        self.b_extm.setText(tr("s1_extm"))
+        self.b_clrm.setText(tr("s1_clear"))
+        self.b_prev_mask.setText(tr("s1_preview"))
+        self.sp_box.setTitle(tr("s1_spbox"))
+        self.b_sp.setText(tr("s1_sp_pick"))
+        self.b_sp_clr.setText(tr("s1_sp_off"))
+        self.b_next1.setText(tr("s1_next"))
+        self.gb2.setTitle(tr("s2_title"))
+        self.lbl_px1.setText(tr("s2_px1"))
+        self.lbl_px2.setText(tr("s2_px2"))
+        self.lbl_lam.setText(tr("s2_lam"))
+        self.lbl_phase.setText(tr("s2_phase"))
+        self.lbl_dref.setText(tr("s2_dref"))
+        self.e_px2.setPlaceholderText(tr("s2_px2_ph"))
+        self.e_lam.setPlaceholderText(tr("s2_lam_ph"))
+        self.e_dref.setPlaceholderText(tr("s2_dref_ph"))
+        self.cb_phase.setItemText(0, tr("s2_phase_auto"))
+        self.b_imp.setText(tr("s2_imp"))
+        self.b_go.setText(tr("s2_go"))
+        self.gb3.setTitle(tr("s3_title"))
+        self.b_t2d.setText(tr("s3_b2d"))
+        self.b_tcake.setText(tr("s3_bcake"))
+        self.b_t1d.setText(tr("s3_b1d"))
+        self.b_next3.setText(tr("s3_next"))
+        self.gb4.setTitle(tr("s4_title"))
+        self.b_exp_poni.setText(tr("s4_poni"))
+        self.b_exp_fig.setText(tr("s4_fig"))
+        self.b_copy_txt.setText(tr("s4_copy"))
+        # 状态相关动态文案 + 流程图卡片 + 状态栏 + 图表标题
+        self._refresh_ext_mask_lbl()
+        self._refresh_spline_lbl()
+        self._refresh_file_info()
+        self._refresh_calib_mode()
+        self._refresh_qa()
+        self._refresh_export_label()
+        self._refresh_cards()
+        self._refresh_status()
+        self._redraw_plots()
+
+    # ---- 动态文案的统一再生成（供事件回调与 _retranslate 共用） ----
+    def _mode_s(self):
+        if not self.paths:
+            return tr("st1_s")
+        if self._n_files >= 2:
+            return tr("mode_multi", n=self._n_files, name=self._first_name)
+        return tr("mode_single", name=self._first_name)
+
+    def _refresh_file_info(self):
+        if not self.paths:
+            self.lbl_file_info.setText(tr("s0_nofile"))
+            return
+        img = self.img_preview
+        w, h = (img.shape[1], img.shape[0]) if img is not None else (0, 0)
+        self.lbl_file_info.setText(
+            tr("finfo", mode=self._mode_s(), w=w, h=h,
+               src=self._meta_src or tr("meta_none")))
+
+    def _refresh_calib_mode(self):
+        if not self.paths:
+            self.lbl_calib_mode.setText(tr("s2_mode_wait"))
+        elif self._n_files >= 2:
+            self.lbl_calib_mode.setText(tr("s2_mode_cur", mode=tr("mode_multi_lbl")))
+        else:
+            self.lbl_calib_mode.setText(tr("s2_mode_cur", mode=tr("mode_single_lbl")))
+
+    def _refresh_ext_mask_lbl(self):
+        if self.ext_mask is None:
+            self.lbl_ext_mask.setText(tr("s1_extm_none"))
+        else:
+            n = int(np.asarray(self.ext_mask).sum())
+            self.lbl_ext_mask.setText(
+                tr("s1_extm_set", name=self._ext_mask_name or "?", n=n))
+
+    def _refresh_spline_lbl(self):
+        if self.spline_path:
+            self.lbl_spline.setText(tr("s1_sp_set", name=os.path.basename(self.spline_path)))
+        else:
+            self.lbl_spline.setText(tr("s1_sp_none"))
+
+    def _refresh_export_label(self):
+        if self._exp_last:
+            kind, p = self._exp_last
+            self.lbl_export.setText(tr("s4_exp_poni" if kind == "poni" else "s4_exp_fig", p=p))
+        else:
+            self.lbl_export.setText(tr("s4_hint"))
+
+    def _refresh_qa(self):
+        if not self.payload:
+            self.txt_qa.setPlainText(tr("s3_reset" if self._qa_state == "reset" else "s3_wait"))
+            return
+        self.txt_qa.setPlainText("\n".join(self._qa_lines()))
+
+    def _refresh_status(self):
+        if self.payload:
+            self.status_lbl.setText(tr(
+                "status_done", ph=self.payload["res"].get("phase"),
+                d=f"{self.payload['geom'][0] * 1000:.3f}",
+                tier=self._loc_conf()["tier"]))
+        elif self.paths:
+            self.status_lbl.setText(tr("status_loaded", mode=self._mode_s()))
+        else:
+            self.status_lbl.setText(tr("status_idle"))
+
+    # ---- 流程图卡片状态统一入口（同时维护快照以便重翻译） ----
+    def _set_card(self, idx, state, summary=None):
+        if 0 <= idx < len(self.cards):
+            self._card_states[idx] = state if state in STATE_STYLE else "idle"
+            self.cards[idx].set_status(state, summary)
+
+    def _last_mask_px(self):
+        for m in ((self.payload or {}).get("mask"), self.preview_mask):
+            if m is not None and bool(np.asarray(m).any()):
+                return int(m.sum())
+        return 0
+
+    def _loc_conf(self):
+        conf = (self.payload or {}).get("conf")
+        if not conf:
+            return dict(tier="-", badge="-", rationale="", recommendation="", raw_tier="-")
+        res = self.payload.get("res") or {}
+        return localize_conf(conf, has_d_ref=bool(res.get("d_ref_ok", False)))
+
+    _RUN_KEYS = {1: "sum_mask_run", 2: "sum_solve_run", 3: "sum_cake_run"}
+
+    def _card_summary(self, i):
+        st = self._card_states[i]
+        if st == "error":
+            return tr("sum_error")
+        if st == "running" and i in self._RUN_KEYS:
+            return tr(self._RUN_KEYS[i])
+        if i == 0:
+            return self._mode_s() if st == "done" else tr("st1_s")
+        if i == 1:
+            if st == "done":
+                sp = f" + {os.path.basename(self.spline_path)}" if self.spline_path else ""
+                return tr("sum_mask_done", m=f"{self._last_mask_px()} px", sp=sp)
+            return tr("st2_s")
+        if i == 2:
+            if st == "done" and self.payload:
+                return tr("sum_geom_done", ph=self.payload["res"].get("phase"),
+                          d=f"{self.payload['geom'][0] * 1000:.2f}")
+            return tr("st3_s")
+        if i == 3:
+            if st == "done" and self.payload:
+                return tr("sum_cake_done", tier=self._loc_conf()["tier"],
+                          p=f"{self.payload['score']['ps_refined']:.2f}")
+            return tr("st4_s")
+        if i == 4:
+            if st == "done" and self._exp_last:
+                return tr("card_exported", name=os.path.basename(self._exp_last[1]))
+            if self.payload:  # 流水线已跑完、尚未导出 → 保持“点击导出”提示
+                return tr("sum_export_idle")
+        return tr("st5_s")
+
+    def _refresh_cards(self):
+        for i, (title, sub) in enumerate(_stages()):
+            self.cards[i].set_texts(title, self._card_summary(i))
+            self.cards[i].set_status(self._card_states[i])
+        self.select_stage(self.stack.currentIndex())  # 重新应用选中态样式
+
+    # ---- QA 面板文本生成（完成回调与重翻译共用） ----
+    def _qa_lines(self):
+        payload = self.payload
+        if not payload:
+            return [tr("s3_wait")]
+        res = payload["res"]
+        sc = payload["score"]
+        dist_m, poni1_m, poni2_m, rot1, rot2 = payload["geom"]
+        px1_m, px2_m = payload["px1_m"], payload["px2_m"]
+        lam_A = payload["lam_A"]
+        ph = res.get("phase")
+        cx_nat = poni2_m / px2_m - 0.5
+        cy_nat = poni1_m / px1_m - 0.5
+        loc = self._loc_conf()
+        dq_s = f"{sc['dq_med']:.4f} Å⁻¹" if np.isfinite(sc["dq_med"]) else "N/A"
+        m_v = int(res.get("m", res["sol"][3]))
+        rms_v = float(res.get("rms", res["sol"][4]))
+        return [
+            f"{tr('qa_phase')}: {ph}",
+            f"{tr('qa_dist')}: {dist_m * 1000:.3f} mm",
+            f"{tr('qa_lam')}: {lam_A:.5f} Å",
+            f"{tr('qa_center')}: ({cx_nat:.2f}, {cy_nat:.2f}) px",
+            f"{tr('qa_poni')}: ({poni1_m * 1000:.3f}, {poni2_m * 1000:.3f}) mm",
+            f"{tr('qa_rot')}: {rot1 * 1e3:+.2f} / {rot2 * 1e3:+.2f} mrad",
+            f"{tr('qa_match')}: " + tr("qa_match_v", m=m_v, rms=f"{rms_v:.3f}"),
+            f"{tr('qa_cake')}: " + tr("qa_cake_v", p=f"{sc['ps_refined']:.3f}",
+                                       n=sc["n_peak_hit"], dq=dq_s),
+            f"{tr('qa_conf')}: {loc['tier']} ({loc['badge']})",
+            f"{tr('qa_rationale')}: {loc['rationale']}",
+            f"{tr('qa_reco')}: {loc['recommendation']}",
+        ]
+
+    def _redraw_plots(self):
+        """语言切换后按当前数据重画三张图（标题/图例随语言更新）。"""
+        if self.payload:
+            payload = self.payload
+            res = payload["res"]
+            ph = res.get("phase")
+            qs = phase_qs(ph) if ph else np.array([], dtype=float)
+            dist_m, poni1_m, poni2_m, _, _ = payload["geom"]
+            px1_m, px2_m = payload["px1_m"], payload["px2_m"]
+            cx_nat = poni2_m / px2_m - 0.5
+            cy_nat = poni1_m / px1_m - 0.5
+            D_px_mean = dist_m / (0.5 * (px1_m + px2_m))
+            self._draw_2d(payload["img"], mask=payload["mask"], qs=qs,
+                          cx_nat=cx_nat, cy_nat=cy_nat, D_px=D_px_mean,
+                          lam_A=payload["lam_A"], phase=ph, dist_m=dist_m)
+            self._draw_cake_tab(payload["cake"], qs, ph)
+            self._draw_1d_tab(payload["cake"], qs, payload["score"])
+        elif self.img_preview is not None:
+            m = self.preview_mask if self.preview_mask is not None else self.ext_mask
+            self._draw_2d(self.img_preview, mask=m)
 
     def _log(self, msg):
         ts = time.strftime("%H:%M:%S")
@@ -761,7 +1069,7 @@ class WorkflowWindow(QMainWindow):
     def _refresh_phase_combo(self, select_name=None):
         cur = select_name or self.cb_phase.currentText()
         self.cb_phase.clear()
-        self.cb_phase.addItem("全盲自动识别（不给标样相）")
+        self.cb_phase.addItem(tr("s2_phase_auto"))
         for ph in PHASE_NAMES:
             self.cb_phase.addItem(ph)
         if select_name:
@@ -783,7 +1091,7 @@ class WorkflowWindow(QMainWindow):
             self.load_paths(urls)
 
     def pick_images(self):
-        ps, _ = QFileDialog.getOpenFileNames(self, "选择衍射图（可多选）", "", IMG_FILTER)
+        ps, _ = QFileDialog.getOpenFileNames(self, tr("dlg_pick_img"), "", tr("f_img"))
         if ps:
             self.load_paths(ps)
 
@@ -794,7 +1102,7 @@ class WorkflowWindow(QMainWindow):
         try:
             img0 = auto_offset(load_any(paths[0]))
         except Exception as exc:
-            QMessageBox.warning(self, "打开失败", str(exc))
+            QMessageBox.warning(self, tr("msg_openfail"), str(exc))
             return
 
         self.paths = paths
@@ -817,25 +1125,29 @@ class WorkflowWindow(QMainWindow):
 
         n = len(paths)
         bname = os.path.basename(paths[0])
-        mode_s = f"单帧 ({bname})" if n == 1 else f"多帧 ({n} 帧，首帧 {bname})"
-        src_s = meta.get("src") or "无头信息，请在步骤 3 确认像素/波长"
-        self.lbl_file_info.setText(f"已载入：{mode_s}\n尺寸：{img0.shape[1]} × {img0.shape[0]} px\n元数据：{src_s}")
-        self.lbl_calib_mode.setText(
-            f"当前将自动走：{'多帧抗差去暗场联合标定' if n >= 2 else '单帧几何盲解与倾角精化'}"
-        )
+        mode_s = tr("mode_single", name=bname) if n == 1 else tr("mode_multi", n=n, name=bname)
+        src_s = meta.get("src") or tr("meta_none")
+        # 记录快照供语言切换后 _retranslate 再生成
+        self._n_files = n
+        self._first_name = bname
+        self._meta_src = meta.get("src")
+        self._qa_state = "wait"
+        self._refresh_file_info()
+        self._refresh_calib_mode()
 
-        self.cards[0].set_status("done", mode_s)
+        self._set_card(0, "done", mode_s)
         for i in range(1, 5):
-            self.cards[i].set_status("idle", STAGES[i][1])
+            self._card_states[i] = "idle"
+        self._refresh_cards()
         self._draw_2d(img0, mask=self.ext_mask)
         self.tabs.setCurrentIndex(0)
-        self._log(f"[步骤1] 已导入 {mode_s}, shape={img0.shape}, meta={src_s}")
-        self.status_lbl.setText(f"已导入 {mode_s}，可直接点击顶部【▶ 一键运行全流程】。")
+        self._log(tr("log1_loaded", mode=mode_s, shape=img0.shape, meta=src_s))
+        self.status_lbl.setText(tr("status_loaded", mode=mode_s))
 
     def load_demo_ceria(self):
         p = os.path.join(_data_root(), "real", "MX_ceria", "ceria_250_1_0001.cbf")
         if not os.path.isfile(p):
-            QMessageBox.warning(self, "找不到示例", p)
+            QMessageBox.warning(self, tr("msg_nodemo"), p)
             return
         self.clear_spline()
         self.load_paths([p])
@@ -846,7 +1158,7 @@ class WorkflowWindow(QMainWindow):
         ps = [os.path.join(al_dir, f"al2o3_{i:04d}.edf") for i in range(5)]
         ps = [p for p in ps if os.path.isfile(p)]
         if len(ps) < 2:
-            QMessageBox.warning(self, "找不到示例", al_dir)
+            QMessageBox.warning(self, tr("msg_nodemo"), al_dir)
             return
         self.load_paths(ps)
         poni_ref = os.path.join(al_dir, "al2o3_00_max_51_frames.poni")
@@ -862,30 +1174,34 @@ class WorkflowWindow(QMainWindow):
         sp = os.path.join(al_dir, "distorsion_2x2.spline")
         if os.path.isfile(sp):
             self.spline_path = sp
-            self.lbl_spline.setText(f"已载入：{os.path.basename(sp)}")
+            self.lbl_spline.setText(tr("s1_sp_set", name=os.path.basename(sp)))
         self.cb_phase.setCurrentIndex(0)
 
     def pick_ext_mask(self):
-        p, _ = QFileDialog.getOpenFileName(self, "选择外部 Mask", "", MASK_FILTER)
+        p, _ = QFileDialog.getOpenFileName(self, tr("dlg_pick_mask"), "", tr("f_mask"))
         if not p:
             return
         try:
             m = load_mask_file(p)
             if self.img_preview is not None and m.shape != self.img_preview.shape:
-                QMessageBox.warning(self, "尺寸不匹配", f"Mask {m.shape} 与图像 {self.img_preview.shape} 不一致")
+                QMessageBox.warning(
+                    self, tr("msg_shape"),
+                    tr("msg_shape_txt", m=m.shape, i=self.img_preview.shape))
                 return
             self.ext_mask = m
-            self.lbl_ext_mask.setText(f"外部 Mask：{os.path.basename(p)} ({int(m.sum())} px)")
+            self._ext_mask_name = os.path.basename(p)
+            self._refresh_ext_mask_lbl()
         except Exception as exc:
-            QMessageBox.warning(self, "载入失败", str(exc))
+            QMessageBox.warning(self, tr("msg_loadfail"), str(exc))
 
     def clear_ext_mask(self):
         self.ext_mask = None
-        self.lbl_ext_mask.setText("外部 Mask：无")
+        self._ext_mask_name = None
+        self._refresh_ext_mask_lbl()
 
     def preview_auto_mask(self):
         if self.img_preview is None:
-            QMessageBox.information(self, "提示", "请先在步骤 1 导入图像。")
+            QMessageBox.information(self, tr("msg_hint"), tr("msg_noimg"))
             return
         m, st = build_auto_mask(
             self.img_preview,
@@ -896,32 +1212,32 @@ class WorkflowWindow(QMainWindow):
         if self.ext_mask is not None and self.ext_mask.shape == m.shape:
             m = m | self.ext_mask
         self.preview_mask = m
-        self.cards[1].set_status("done", f"mask={int(m.sum())} px")
+        self._set_card(1, "done", tr("sum_mask_done", m=f"{int(m.sum())} px", sp=""))
         self._draw_2d(self.img_preview, mask=m)
         self.tabs.setCurrentIndex(0)
-        self._log(f"[步骤2] 预览掩膜完成: 合计 {int(m.sum())} px ({st['frac']*100:.1f}%)")
+        self._log(tr("log2_preview", n=int(m.sum()), p=f"{st['frac']*100:.1f}"))
 
     def pick_spline(self):
-        p, _ = QFileDialog.getOpenFileName(self, "选择 .spline 畸变文件", "", SPL_FILTER)
+        p, _ = QFileDialog.getOpenFileName(self, tr("dlg_pick_spline"), "", tr("f_spl"))
         if p:
             self.spline_path = p
-            self.lbl_spline.setText(f"已载入：{os.path.basename(p)}")
+            self._refresh_spline_lbl()
 
     def clear_spline(self):
         self.spline_path = None
-        self.lbl_spline.setText("未载入（Pilatus / Eiger 平板探测器留空即可）")
+        self._refresh_spline_lbl()
 
     def import_custom_phase(self):
-        p, _ = QFileDialog.getOpenFileName(self, "导入自定义标样 (.D / .cif)", "", PHASE_FILTER)
+        p, _ = QFileDialog.getOpenFileName(self, tr("dlg_imp_phase"), "", tr("f_phase"))
         if not p:
             return
         try:
             ph_name = load_and_register_phase(p)
             self._refresh_phase_combo(select_name=ph_name)
             qs = phase_qs(ph_name)
-            self._log(f"[步骤3] 已导入自定义标样 {ph_name} ({len(qs)} 条衍射峰)")
+            self._log(tr("log3_import", ph=ph_name, n=len(qs)))
         except Exception as exc:
-            QMessageBox.critical(self, "导入失败", str(exc))
+            QMessageBox.critical(self, tr("msg_impfail"), str(exc))
 
     def _read_lam_A(self):
         txt = self.e_lam.text().strip()
@@ -929,14 +1245,14 @@ class WorkflowWindow(QMainWindow):
             return None
         val = float(txt)
         if val <= 0:
-            raise ValueError("波长/能量必须 > 0")
+            raise ValueError(tr("err_lam_pos"))
         return self.HC_KEV_A / val if self.cb_lam_unit.currentIndex() == 1 else val
 
     def run_all(self):
         if self.worker is not None and self.worker.isRunning():
             return
         if not self.paths:
-            QMessageBox.information(self, "提示", "请先在步骤 1 导入衍射图。")
+            QMessageBox.information(self, tr("msg_hint"), tr("msg_nofile"))
             self.select_stage(0)
             return
         try:
@@ -945,20 +1261,20 @@ class WorkflowWindow(QMainWindow):
             px2_um = float(px2_txt) if px2_txt else px1_um
             lam_A = self._read_lam_A()
             if lam_A is None:
-                raise ValueError("请填写波长 (Å) 或光子能量 (keV)")
+                raise ValueError(tr("err_need_lam"))
             dref_txt = self.e_dref.text().strip()
             d_ref_mm = float(dref_txt) if dref_txt else None
             if d_ref_mm is not None and d_ref_mm <= 0:
-                raise ValueError("近似距离必须 > 0")
+                raise ValueError(tr("err_dref_pos"))
         except Exception as exc:
-            QMessageBox.warning(self, "参数有误", str(exc))
+            QMessageBox.warning(self, tr("msg_badparam"), str(exc))
             self.select_stage(2)
             return
 
         phase_opt = None if self.cb_phase.currentIndex() == 0 else [self.cb_phase.currentText()]
         self.pb.setVisible(True)
         self.b_run_all.setEnabled(False)
-        self.status_lbl.setText("全流程运行中…")
+        self.status_lbl.setText(tr("status_running"))
 
         self.worker = WorkflowWorker(
             self.paths, px1_um, px2_um, lam_A, phase_opt=phase_opt,
@@ -977,16 +1293,18 @@ class WorkflowWindow(QMainWindow):
 
     def _on_stage_changed(self, idx, state, summary):
         if 0 <= idx < len(self.cards):
-            self.cards[idx].set_status(state, summary)
+            self._set_card(idx, state, summary)
         if state == "running":
-            self.status_lbl.setText(f"{STAGES[idx][0]}：{summary}")
+            self.status_lbl.setText(
+                tr("status_stage_run", stage=tr("st%d_t" % (idx + 1)), summary=summary))
 
     def _on_failed(self, idx, tb):
         self.pb.setVisible(False)
         self.b_run_all.setEnabled(True)
-        self.cards[idx].set_status("error", "运行失败")
-        self._log(f"[错误] {STAGES[idx][0]} 异常:\n{tb}")
-        self.status_lbl.setText(f"{STAGES[idx][0]} 运行失败，请查看日志。")
+        self._set_card(idx, "error", tr("sum_error"))
+        stage_t = tr("st%d_t" % (idx + 1))
+        self._log(tr("log_err", stage=stage_t, tb=tb))
+        self.status_lbl.setText(tr("status_fail", stage=stage_t))
         self.tabs.setCurrentIndex(3)
 
     def _on_finished_all(self, payload):
@@ -1016,27 +1334,16 @@ class WorkflowWindow(QMainWindow):
         self._draw_1d_tab(cake, qs, sc)
 
         dq_s = f"{sc['dq_med']:.4f} Å⁻¹" if np.isfinite(sc["dq_med"]) else "N/A"
-        qa_lines = [
-            f"标样物相        : {ph}",
-            f"样品到探测器距离: {dist_m * 1000:.3f} mm",
-            f"X 射线波长      : {lam_A:.5f} Å",
-            f"原生束心 (x, y) : ({cx_nat:.2f}, {cy_nat:.2f}) px",
-            f"PONI (p1, p2)   : ({poni1_m * 1000:.3f}, {poni2_m * 1000:.3f}) mm",
-            f"倾角 rot1/rot2  : {rot1 * 1e3:+.2f} / {rot2 * 1e3:+.2f} mrad",
-            f"几何匹配        : m={res.get('m', res['sol'][3])} 环 | rms={res.get('rms', res['sol'][4]):.3f} px",
-            f"Cake 1D 评分    : refined={sc['ps_refined']:.3f} | 命中峰={sc['n_peak_hit']} | |Δq|_med={dq_s}",
-            f"置信度评级      : {conf.get('tier')} ({conf.get('badge')})",
-            f"评定说明        : {conf.get('rationale')}",
-            f"使用建议        : {conf.get('recommendation')}",
-        ]
-        self.txt_qa.setPlainText("\n".join(qa_lines))
+        self.txt_qa.setPlainText("\n".join(self._qa_lines()))
+        self._qa_state = "full"
 
         self.b_exp_poni.setEnabled(True)
         self.b_exp_fig.setEnabled(True)
         self.b_copy_txt.setEnabled(True)
         self.select_stage(3)
         self.tabs.setCurrentIndex(1)
-        self.status_lbl.setText(f"全流程完成：{ph} | D={dist_m*1000:.3f} mm | {conf.get('tier')}")
+        self.status_lbl.setText(tr(
+            "status_done", ph=ph, d=f"{dist_m*1000:.3f}", tier=self._loc_conf()["tier"]))
 
     def _draw_2d(self, img, mask=None, qs=None, cx_nat=None, cy_nat=None,
                  D_px=None, lam_A=None, phase=None, dist_m=None):
@@ -1057,14 +1364,14 @@ class WorkflowWindow(QMainWindow):
                 if 5.0 < r_c < 1.45 * max(canvas.shape):
                     self.ax_2d.add_patch(Circle((cx_c, cy_c), float(r_c), fill=False,
                                                 ec="#009E73", lw=0.9, alpha=0.8))
-            self.ax_2d.set_title(f"2D 环叠图 ({phase} | D={dist_m*1000:.2f} mm)", fontsize=10)
+            self.ax_2d.set_title(tr("t_2d_rings", ph=phase, d=f"{dist_m*1000:.2f}"), fontsize=10)
         else:
-            self.ax_2d.set_title("2D 原始衍射图（红色半透明=掩膜区）", fontsize=10)
+            self.ax_2d.set_title(tr("t_2d_raw"), fontsize=10)
         self.fig_2d.tight_layout()
         self.cv_2d.draw_idle()
 
     def _draw_cake_tab(self, cake, qs, phase):
-        draw_cake(self.ax_cake, cake, qs=qs, title=f"q-χ Cake 展开图 · {phase}（绿虚线为理论峰位）")
+        draw_cake(self.ax_cake, cake, qs=qs, title=tr("t_cake", ph=phase))
         self.fig_cake.tight_layout()
         self.cv_cake.draw_idle()
 
@@ -1081,7 +1388,7 @@ class WorkflowWindow(QMainWindow):
         self.ax_1d.set_xlabel(r"q (Å$^{-1}$)")
         self.ax_1d.set_ylabel("log1p(I)")
         dq_s = f"{sc['dq_med']:.4f} Å" + r"$^{-1}$" if np.isfinite(sc["dq_med"]) else "N/A"
-        self.ax_1d.set_title(f"1D 径向积分谱 · refined={sc['ps_refined']:.3f} | |Δq|_med={dq_s}", fontsize=10)
+        self.ax_1d.set_title(tr("t_1d", p=f"{sc['ps_refined']:.3f}", dq=dq_s), fontsize=10)
         self.fig_1d.tight_layout()
         self.cv_1d.draw_idle()
 
@@ -1089,7 +1396,7 @@ class WorkflowWindow(QMainWindow):
         if not self.payload:
             return
         base = os.path.splitext(os.path.basename(self.paths[0]))[0]
-        p, _ = QFileDialog.getSaveFileName(self, "导出 .poni", f"{base}_calibrated.poni", "pyFAI PONI (*.poni)")
+        p, _ = QFileDialog.getSaveFileName(self, tr("dlg_save_poni"), f"{base}_calibrated.poni", tr("f_poni"))
         if not p:
             return
         try:
@@ -1100,17 +1407,18 @@ class WorkflowWindow(QMainWindow):
                 spline=self.payload["spline"], mask=self.payload["mask"],
                 note=f"Exported from gui_workflow.py ({self.payload['res'].get('phase')})",
             )
-            self.cards[4].set_status("done", f"已导出 {os.path.basename(p)}")
-            self.lbl_export.setText(f"已导出 .poni：\n{p}")
-            self._log(f"[步骤5] 已导出 .poni -> {p}")
+            self._exp_last = ("poni", p)
+            self._set_card(4, "done", tr("card_exported", name=os.path.basename(p)))
+            self.lbl_export.setText(tr("s4_exp_poni", p=p))
+            self._log(tr("log5_poni", p=p))
         except Exception as exc:
-            QMessageBox.critical(self, "导出失败", str(exc))
+            QMessageBox.critical(self, tr("msg_expfail"), str(exc))
 
     def export_diag_fig(self):
         if not self.payload:
             return
         base = os.path.splitext(os.path.basename(self.paths[0]))[0]
-        p, _ = QFileDialog.getSaveFileName(self, "导出标定体检图", f"{base}_体检图.png", "PNG (*.png);;PDF (*.pdf)")
+        p, _ = QFileDialog.getSaveFileName(self, tr("dlg_save_fig"), f"{base}_{tr('fig_suffix')}.png", tr("f_png"))
         if not p:
             return
         try:
@@ -1119,17 +1427,18 @@ class WorkflowWindow(QMainWindow):
                 self.payload["px1_m"], px2_m=self.payload["px2_m"],
                 mask=self.payload["mask"], spline=self.payload["spline"],
             )
-            self.cards[4].set_status("done", f"已导出 {os.path.basename(p)}")
-            self.lbl_export.setText(f"已导出体检图：\n{p}")
-            self._log(f"[步骤5] 已导出体检图 -> {p}")
+            self._exp_last = ("fig", p)
+            self._set_card(4, "done", tr("card_exported", name=os.path.basename(p)))
+            self.lbl_export.setText(tr("s4_exp_fig", p=p))
+            self._log(tr("log5_fig", p=p))
         except Exception as exc:
-            QMessageBox.critical(self, "导出失败", str(exc))
+            QMessageBox.critical(self, tr("msg_expfail"), str(exc))
 
     def copy_summary(self):
         if not self.payload:
             return
         QApplication.clipboard().setText(self.txt_qa.toPlainText())
-        self.status_lbl.setText("已将标定结果摘要复制到剪贴板。")
+        self.status_lbl.setText(tr("status_copied"))
 
     def reset_workflow(self):
         if self.worker is not None and self.worker.isRunning():
@@ -1141,21 +1450,28 @@ class WorkflowWindow(QMainWindow):
         self.payload = None
         self.clear_spline()
         self.clear_ext_mask()
-        self.lbl_file_info.setText("尚未导入文件")
-        self.lbl_calib_mode.setText("求解模式：待导入图像后自动判断（单帧 / 多帧联合）")
-        self.txt_qa.setPlainText("尚未运行标定。")
+        # 快照一并复位，保证后续语言切换时动态文案回到初始态
+        self._card_states = ["idle"] * 5
+        self._n_files = 0
+        self._first_name = ""
+        self._meta_src = None
+        self._qa_state = "reset"
+        self._exp_last = None
+        self._refresh_file_info()
+        self._refresh_calib_mode()
+        self.txt_qa.setPlainText(tr("s3_reset"))
         self.txt_log.clear()
         self.b_run_all.setEnabled(False)
         self.b_exp_poni.setEnabled(False)
         self.b_exp_fig.setEnabled(False)
         self.b_copy_txt.setEnabled(False)
-        for i, c in enumerate(self.cards):
-            c.set_status("idle", STAGES[i][1])
+        self._refresh_cards()
+        self._refresh_export_label()
         for ax, cv in ((self.ax_2d, self.cv_2d), (self.ax_cake, self.cv_cake), (self.ax_1d, self.cv_1d)):
             ax.clear()
             cv.draw_idle()
         self.select_stage(0)
-        self.status_lbl.setText("已重置，请重新导入数据。")
+        self.status_lbl.setText(tr("status_reset"))
 
 
 def _selftest():
@@ -1181,9 +1497,22 @@ def _selftest():
         theme.apply_app(app, "light")
         win = WorkflowWindow()
         assert len(win.cards) == 5
+        # i18n 冒烟：切到英语全量重翻译并抽查关键控件，随后还原语言
+        prev_lang = get_lang()
+        set_lang("en", persist=False)
+        win._retranslate()
+        assert win.windowTitle() == tr("app_title")
+        assert win.gb0.title() == tr("s0_title")
+        assert win.b_run_all.text() == tr("run_all")
+        assert win.tabs.tabText(3) == tr("tab_log")
+        win.reset_workflow()
+        assert win.status_lbl.text() == tr("status_reset")
+        set_lang(prev_lang, persist=False)
+        win._retranslate()
         msg = (
             f"SELFTEST_OK phases={len(torchfai.phases.PHASE_NAMES)} "
-            f"cards={len(win.cards)} pyFAI={getattr(pyFAI, 'version', 'ok')}"
+            f"cards={len(win.cards)} lang={get_lang()} "
+            f"pyFAI={getattr(pyFAI, 'version', 'ok')}"
         )
         with open(log, "w", encoding="utf-8") as f:
             f.write(msg + "\n")

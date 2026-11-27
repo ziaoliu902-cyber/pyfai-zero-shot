@@ -2,151 +2,105 @@
 
 # pyfai-zero-shot
 
-**从单张粉末环图像出发的二维 X 射线探测器几何零样本标定<br>（相位盲 · 零样本）**
+**无需先验物相与初始几何的二维粉晶 X 射线探测器自动标定引擎<br>全环与离轴四角残弧通用 · 11 语种桌面工作台**
 
-🚫 无需已知标样物相 &nbsp;·&nbsp; 🚫 无需几何初值 &nbsp;·&nbsp; 🚫 波长可未知<br>
-✅ 直接输出标准 pyFAI PONI &nbsp;·&nbsp; ✅ 自带 bootstrap 不确定度
+🚫 无需指定标样物相 &nbsp;·&nbsp; 🚫 无需初始距离/束心 &nbsp;·&nbsp; 🌍 11 语言桌面端（含阿拉伯语 RTL）<br>✅ 直接导出标准 pyFAI <code>.poni</code> &nbsp;·&nbsp; ✅ 定量可辨识度评级 &nbsp;·&nbsp; ✅ 冻结基线 <code>f608e67</code>
 
 [English](README.md) · **简体中文** · [正體中文](README.zh-TW.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.9.0-1a365d)]()
+[![Commit](https://img.shields.io/badge/frozen-f608e67-0072B2)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
-[![Built for pyFAI](https://img.shields.io/badge/built%20for-pyFAI-013243)]()
-[![Status](https://img.shields.io/badge/status-论文撰写中-e67e22)]()
+[![GUI Languages](https://img.shields.io/badge/GUI_languages-11_(incl._RTL)-009E73)]()
+[![Manuscript](https://img.shields.io/badge/manuscript-Science_Advances_Research_Resource-D55E00)](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
 
 </div>
-
-
-## 下载
-
-免 Python——Windows 免安装包见 [v0.9.0 Release](https://github.com/ziaoliu902-cyber/pyfai-zero-shot/releases/tag/v0.9.0):
-
-- 🧙 **DiffBlindWizard** — 新手五步向导(选图 → 确认 → 求解 → 判语大灯 → 导出 PONI)
-- 🛠 **PyFAI-Blind** — 专家主窗口(批量、🔗 联合标定、🏠 弱衍射·平均帧种子、漂移曲线)
-
-均支持 --selftest 无头自检。
 
 ---
 
-## 为什么做这件事
+## 论文预印本（Science Advances — Research Resource 格式）
 
-传统标定工具（pyFAI `calib2`、DAWN、FIT2D）默认**已知标样、手动挑环、几何初值足够好**。
-冷启动（零初值）运行时，它们会锁进自洽但**错误**的解——环指标/距离简并——残差很小，
-误差被完美隐藏。在下方公开基准上，零初值 pyFAI **11/11 全部失败**；本流水线在无人
-干预、单帧、不告知样品物相的条件下解出其中大多数。
+- 📄 **英文正文 PDF（10 页）**：[pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)（[Markdown](manuscript/SciAdv_ResearchResource_v1.md)）
+- 📊 **补充材料 PDF（Tables S1–S5）**：[pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)（[Markdown](manuscript/SciAdv_Supplementary_v1.md)）
+- 🔒 **全量冻结基准表（`f608e67`）**：[docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
-## 工作原理
+## 多语言桌面工作台（11 种语言）
 
-在粉末相库上运行的**经典优先级联**，由**跨种子共识门**仲裁：
+- **PyFAI-Workflow (`probes/gui_workflow.py`)** — 5 阶段可视化流程图工作台，集成自动掩膜、Cake 体检与置信度红绿灯，内置 **`probes/i18n_wf.py` 11 语种实时切换**（简体中文、English、正體中文、日本語、Français、Deutsch、Русский、Português、한국어、Español、العربية 含原生 RTL 布局）。
+- **DiffBlindWizard (`probes/gui_wizard.py`)** — 面向日常实验人员的 5 步向导式 `.poni` 生成工具。
 
-1. 快速峰位求解器先从画布几何中心起解（15 毫秒/帧）；
-2. 仅在失败时启用后备种子——闭式径向对称中心估计器、补偿其偏轴收缩偏差的
-   射线外推种子、以及可选的回归神经网络；
-3. 各种子投票，被独立种子重新发现的解胜出，从而剔除伪解；
-4. 倾角精化 + bootstrap 光子重采样 → 输出带各量不确定度的标准 **PONI**。
+## 核心原理
 
-<div align="center">
-<img src="assets/fig1_architecture.png" alt="流水线架构" width="820">
-</div>
-
-## 一眼看结果
-
-| 基准 | 结果 |
-|---|---|
-| CeO₂ 标样 · 7 个距离，150–450 mm | 平均与最差 \|ΔD\| = **0.1 mm**，7/7 收敛；经典路径 15 毫秒/帧 |
-| Al₂O₃ · 52 张静态帧 | 51/52 解出（1 张暗帧被正确拒绝）；帧间散布 **MAD 0.45 mm**；bootstrap σ(D) = **0.47 mm**，真值覆盖率 6/6 |
-| 跨仪器 · 10 张公开图像（8 张可评估） | 物相识别 **6/8**；\|ΔD\| ≤ 0.1 mm 占 **4/8**；倾角 ≲ 5 mrad；*每个失败都有归因* |
-| 弱衍射(Al₂O₃,深度平均)· v0.9 | 51 帧平均种子→联合解:种子 \|ΔD\| **0.13 mm**、逐帧 MAD **0.08 mm**、σ_boot(D) **0.019 mm**,全程约 2 分钟 |
-| 独立对照 | 零初值 pyFAI 在同样 11 帧上**全部失败**；从我们的解出发它与我们一致——增益来自初始化，而非不同的精化引擎 |
+1. **自适应预处理**：`auto_offset` 自动扣除平板探测器负基底（`< -5% p99.9`）；`auto_mask` 自动屏蔽模块缝隙、坏点热像素与束流挡盘阴影。
+2. **多尺度画布阶梯（`R2`）**：默认从 `≤ 520 px` 起跑，遇到无解、低环高残差或高降采样分叉风险（`s ≥ 5` 且 `|ΔD|/D ≥ 10%`）时自动升级至 `ceil(maxdim/2)`。
+3. **零先验定心与物相仲裁**：Layer-0 谱锐度/Kåsa 守卫、环饥饿守卫（`|ln(D_RS/D_geo)| > 0.46`）、径向对称+射线多种子共识投票、全谱 Pearson 相关 `ps` 与覆盖分仲裁。
+4. **全环与部分弧精修**：完整环走原生 2D Taubin 圆拟合；离轴四角残弧（`az_cov < 50%`）启用 `1440²` 正则化角束倾角与**两参数差分 Pseudo-Voigt 解耦**（`r_i = D tan(2θ_i) + δr_0` 并沿可见弧法向修正束心）。
 
 <div align="center">
-<img src="assets/fig2_frames_rings.png" alt="基准帧与拟合环" width="760"><br>
-<sub>基准帧与拟合环：(a) CeO₂，300 mm（8 条匹配环）；(b) 52 张静态 Al₂O₃ 帧的均值。</sub>
+<img src="manuscript/figures/fig1_pipeline_and_ablation.png" alt="Zero-prior pipeline and DESY 4-stage ablation" width="840">
 </div>
+
+## 冻结基线实测结果（`f608e67` 冷启动）
+
+| 基准测试集 | 实测表现（`f608e67`，逐帧清缓存冷启动） |
+| :--- | :--- |
+| **DESY PETRA III P02.1 盲测**（13 组，230–2290 mm，Varex 2880² + PerkinElmer 2048²，~60 keV） | **13/13 (100%)** 命中 `LaB6`，**13/13 `< 0.12%`**，中位 **`0.030%`**（Locked OOD `0.028%`），R² `0.999999`，RMSE `0.82 mm`，角束定心 **`0.74 px`**（提升 `9.7×`），Mode B `8/8` 逐位一致 |
+| **CLS 08B1-1 真实矿物**（16 帧，4 种含砷矿物，COD/pymatgen 自动生成相表） | **16/16 (100%)** 直接收敛（0 个假盆地），**`246.90 ± 1.36 mm`**，MAD **`0.69 mm`**，`ps = +0.583..+0.879`，中位耗时 `12.96 s` |
+| **ESRF D2AM `MX_ceria` & `Al2O3`**（7 档 150–450 mm；52 帧含 1 暗场） | `CeO2` 纯盲解 **7/7**（均差 `0.139 mm`）/ 锁表 `phase_fit` 均差与最差 **`0.1 mm`**；`Al2O3` **51/52**（自动拒收暗场），`.spline` 均值 **`116.70 mm`** vs 真值 `116.86 mm`（`−0.16 mm`） |
+| **跨探测器 `silx_zoo`**（已知 λ，盲物相） | **5/5** 物相全中：`Pilatus2M −0.007%`、`Eiger4M +0.041%`、`Eiger4M_v2 +0.311%`、`Eiger9M +0.008%`、`Pilatus1M`（`AgBh` 物理量 λ·D 误差 `+0.14%`） |
+| **100 例合成可辨识性边界**（`Seed = 20261120`） | 清晰相变位于 `n_vis ≥ 4`：**41/41 (100%) `≤ 1.0%`**，**40/41 (97.6%) `≤ 0.20%`**，中位 **`0.0010%`**（`nvis = 5–13`：`31/31 ≤ 0.0019%`）；`n_vis ≤ 3` 仅 `27.1%` |
+| **与无加权 `pyFAI` 24 帧对比** | 零初值 `pyFAI`（`P0`，给定标样）：仅 **3/24 (12.5%)**（DESY 角束 `0/8`，中位 `45.81%`）→ 本引擎（盲物相）：**24/24 (100%)**（`0.033%`）→ 用本引擎初值驱动 `pyFAI`（`P1`）：**24/24 (100%)**，中位 **`0.006%` / `0.11 px`** |
 
 <details>
-<summary><b>更多证据</b>（CeO₂ 距离误差 · 与 pyFAI 的独立对决）</summary>
+<summary><b>更多论文主图（DESY 盲测 · 可辨识性相变 · 跨光源实测 · pyFAI 对比）</b></summary>
 
 <div align="center">
-<img src="assets/fig3_ceria_errors.png" width="520"><br>
-<sub>CeO₂ 七距离误差（原生二维精化）：平均与最差 |ΔD| = 0.1 mm。</sub><br><br>
-<img src="assets/fig8_duel_ablation.png" width="760"><br>
-<sub>与 pyFAI 的独立对照（零初值 P0 vs 本流水线 T，同起点 P1）及组件消融。</sub>
+<img src="manuscript/figures/fig2_desy_blind_validation.png" width="800"><br><br>
+<img src="manuscript/figures/fig3_identifiability_bound.png" width="800"><br><br>
+<img src="manuscript/figures/fig4_multifacility_benchmarks.png" width="820"><br><br>
+<img src="manuscript/figures/fig5_pyfai_comparison.png" width="820">
 </div>
 
 </details>
 
-## 快速上手
+## 快速开始
 
 ```bash
-pip install numpy scipy matplotlib pyFAI fabio pillow h5py torch
+pip install numpy scipy matplotlib pyFAI fabio pillow h5py PyQt5
 ```
 
 ```python
-import fabio
-from probes.solver_core import solve_image
+import fabio, numpy as np
+from probes.solver_core import auto_offset, solve_image
+from probes.auto_mask import build_auto_mask
 
-img = fabio.open("your_frame.edf").data.astype(float)
-img[img >= 1e9] = 0.0            # 哨兵值/负值掩蔽（zoo 口径）
-img[img < 0] = 0.0
-
-res = solve_image(img, px_m=172e-6)      # lam=None → λ–D 联合求解
-print(res["phase"], res["sol"])          # 物相识别 + 几何解
+img = auto_offset(fabio.open("your_frame.tif").data.astype(np.float64))
+mask, _ = build_auto_mask(img)
+res = solve_image(img, px_m=150e-6, lam=0.20735, phases=None, mask=mask)
+print(res["phase"], res["sol"], res["confidence"]["tier"])
 ```
 
-下载论文所引用的公开测试图（<https://www.silx.org/pub/pyFAI/testimages/>）
-到 `data/real/`，然后运行各探针——`probes/results/` 中的每张表都可确定性复现
-（随机种子固定）。
-
-| 入口 | 用途 |
-|---|---|
-| `probes/solver_core.py` | 统一入口 `solve_image()`（画布选择 + 零样本安全回退） |
-| `probes/zoo_run.py` | 跨仪器基准（silx 测试图） |
-| `probes/phase_map.py` | 条件图（曝光 / 倾角 / 跨度） |
-| `probes/ablation8.py` | 组件消融（压力集） |
-| `probes/_pyfai_duel.py` | 与 pyFAI 的独立对照 |
-| `generators/train.py` | NN 初始化器训练（合成帧） |
-
-## 仓库结构
-
-```
-torchfai/      求解器库（物相、模拟器、精化、模型）
-probes/        基准探针、图表脚本、GUI 求解器
-  results/     完整结果表（.md/.json/.txt）+ 参考 PONI
-generators/    NN 训练数据生成器 + 合并工具
-docs/          技术证据文档（实验日志）
-manuscript/    论文草稿 v0.5（Markdown）
-assets/        本 README 所用图表
+```bash
+# Launch the 11-language desktop workflow GUI (zh/en/zh_TW/ja/fr/de/ru/pt/ko/es/ar)
+python probes/gui_workflow.py
+# Or launch the 5-step beginner wizard
+python probes/gui_wizard.py
 ```
 
-## 盲测邀请
-
-> 我们正在向各线站征集 **1–2 张历史帧 + 对应参考 .poni**——不限探测器、标样、
-> 距离、波长、年代。您发送图像与已知标定；我们完全盲解，返回 ΔD、束流中心、
-> 倾角、可直接使用的 PONI、不确定度区间和物相识别。在我们的解固定并打上时间
-> 戳之前，我们不会看到参考值。**负结果同样如实报告**——失败附带归因，而非借口。
-
-**联系人：** Ziao Liu · ziaoliu902@gmail.com
-
-## 引用
+## 引用方式
 
 ```bibtex
-@software{pyfai_zero_shot_2026,
-  author = {Liu, Ziao},
-  title  = {pyfai-zero-shot: phase-blind, zero-shot geometry calibration
-            of 2-D X-ray detectors from powder rings},
-  year   = {2026},
-  url    = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
-  note   = {v0.5}
+@article{liu2026pyfaizeroshot,
+  author  = {Liu, Zi'ao and Liu, Jiaru and Liu, Haixia},
+  title   = {Phase-blind, zero-prior geometric calibration of two-dimensional powder X-ray diffraction detectors across full rings and off-axis partial arcs},
+  year    = {2026},
+  note    = {Science Advances Research Resource manuscript; frozen release commit f608e67},
+  url     = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot}
 }
 ```
 
-## 许可与致谢
+## 开源协议与致谢
 
-MIT（见 [LICENSE](LICENSE)）。基准帧为 pyFAI 公开发布的测试图
-（silx.org，采集于 ESRF D2AM/BM02 线站）；本项目是 pyFAI 的独立使用者，
-与 pyFAI 团队无隶属关系。
+We acknowledge DESY (Hamburg, Germany), a member of the Helmholtz Association HGF, for the provision of experimental facilities. Parts of this research were carried out at PETRA III beamline P02.1. Beamtime was allocated by an In-House contingent. We thank Dr. Martin Etter and the PETRA III P02.1 beamline team for acquiring and providing the NIST SRM 660c LaB6 flat-panel calibration datasets.
 
-<sub>手稿（v0.5）为撰写中的草稿，尚未经过同行评审。多语言 README 手工维护，
-以英文版为准。</sub>
+<sub>MIT 开源协议（见 [LICENSE](LICENSE)）。所有多语言 README 已与 `f608e67` 同步更新。</sub>

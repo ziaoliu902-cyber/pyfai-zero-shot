@@ -84,7 +84,48 @@ def compute_cake(img, dist_m, poni1_m, poni2_m, rot1=0.0, rot2=0.0,
     return dict(cake=cake, q_axis=q_ax, chi_axis=chi_ax, tth_axis=tth_ax)
 
 
-def draw_cake(ax, cake_dict, qs=None, title="q-χ 蛋糕展开图"):
+# ── 导出体检图的多语言取词（懒加载 i18n_wf，保证 CLI/其他打包件零依赖可用）──
+_DIAG_FALLBACK = {  # i18n_wf 不可用时的中文兜底（与 i18n_wf._DIAG["zh"] 同步维护）
+    "t_diag_2d": "2D 环叠图 ({ph} | D={d} mm)",
+    "t_diag_cake": "q-χ 蛋糕展开图（环平直即无倾角残差）",
+    "t_diag_1d": "1D 径向积分谱与理论峰位",
+    "t_diag_qa": "标定参数与质量评估摘要",
+}
+# 各语种 matplotlib 字体链（mpl>=3.6 支持逐字形回退；DejaVu 覆盖拉丁/西里尔）
+_FIG_FONTS = {
+    "zh": ["Microsoft YaHei", "SimHei", "DejaVu Sans"],
+    "zh_TW": ["Microsoft JhengHei", "Microsoft YaHei", "SimHei", "DejaVu Sans"],
+    "ja": ["Yu Gothic", "MS Gothic", "Microsoft YaHei", "DejaVu Sans"],
+    "ko": ["Malgun Gothic", "Microsoft YaHei", "DejaVu Sans"],
+}
+
+
+def _fig_lang():
+    """导出图取词语言：跟随 i18n_wf 当前语言；无 i18n_wf 回退 zh；
+    ar 在 matplotlib 下无字形整形（连写/RTL），回退 en。"""
+    try:
+        from i18n_wf import get_lang
+        code = get_lang()
+    except Exception:
+        return "zh"
+    return "en" if code == "ar" else code
+
+
+def _fig_tr(key, **kw):
+    lang = _fig_lang()
+    try:
+        from i18n_wf import tr_for
+        return tr_for(lang, key, **kw)
+    except Exception:
+        s = _DIAG_FALLBACK.get(key) or key
+        return s.format(**kw) if kw else s
+
+
+def _fig_fonts():
+    return _FIG_FONTS.get(_fig_lang(), ["DejaVu Sans"])
+
+
+def draw_cake(ax, cake_dict, qs=None, title="q-χ 蛋糕展开图", fontfamily=None):
     """在 matplotlib Axes 上绘制 log1p 蛋糕展开图并叠加理论环竖线。"""
     ax.clear()
     cake = cake_dict["cake"]
@@ -109,7 +150,10 @@ def draw_cake(ax, cake_dict, qs=None, title="q-χ 蛋糕展开图"):
                 ax.axvline(float(q0), color="#2ecc71", lw=0.9, ls="--", alpha=0.85)
     ax.set_xlabel(r"q (Å$^{-1}$)")
     ax.set_ylabel("χ (°)")
-    ax.set_title(title, fontsize=9)
+    if fontfamily:
+        ax.set_title(title, fontsize=9, fontfamily=fontfamily)
+    else:
+        ax.set_title(title, fontsize=9)
 
 
 def score_cake_profile(q_axis, prof_1d, qs, I_rel=None):
@@ -261,6 +305,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
             pass
 
     fig = Figure(figsize=(12, 9))
+    ff = _fig_fonts()  # 按当前语言选 matplotlib 字体链（CJK 语种需中/日/韩字体）
     ax_img = fig.add_subplot(2, 2, 1)
     ax_cake = fig.add_subplot(2, 2, 2)
     ax_1d = fig.add_subplot(2, 2, 3)
@@ -284,12 +329,13 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
         if 5.0 < r_c < 1.5 * max(canvas.shape):
             ax_img.add_patch(Circle((cx_c, cy_c), float(r_c), fill=False,
                                     ec="#2ecc71", lw=0.8, alpha=0.75))
-    ax_img.set_title(f"2D 环叠图 ({phase or 'Custom'} | D={dist_m*1000:.2f} mm)", fontsize=9)
+    ax_img.set_title(_fig_tr("t_diag_2d", ph=phase or "Custom", d=f"{dist_m*1000:.2f}"),
+                     fontsize=9, fontfamily=ff)
 
     # 2. q-χ Cake
     cake = compute_cake(arr, dist_m, poni1_m, poni2_m, rot1=rot1, rot2=rot2,
                         px1=px1_f, px2=px2_f, lam_A=lam, mask=mask, spline=spline)
-    draw_cake(ax_cake, cake, qs=qs, title="q-χ 蛋糕展开图（环平直即无倾角残差）")
+    draw_cake(ax_cake, cake, qs=qs, title=_fig_tr("t_diag_cake"), fontfamily=ff)
 
     # 3. 1D 径向谱（从已校正倾角与像素各向异性的 Cake 沿方位角均值导出）
     q_1d = cake["q_axis"]
@@ -303,7 +349,7 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
             ax_1d.axvline(float(q0), color="#e74c3c", lw=0.75, ls="--", alpha=0.7)
     ax_1d.set_xlabel(r"q (Å$^{-1}$)")
     ax_1d.set_ylabel("log1p(I)")
-    ax_1d.set_title("1D 径向积分谱与理论峰位", fontsize=9)
+    ax_1d.set_title(_fig_tr("t_diag_1d"), fontsize=9, fontfamily=ff)
 
     # 4. 参数 QA 摘要卡片
     ax_card.axis("off")
@@ -334,6 +380,15 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
         )
     except Exception:
         pass
+    # 显示层本地化：evaluate_confidence 输出的中文 tier/badge 转成图语言（_fig_lang，
+    # ar 已回退 en），否则非 zh 语种的 QA 卡会因 DejaVu 缺 CJK 字形渲染成空白块。
+    try:
+        from i18n_wf import localize_conf
+        fl = _fig_lang()
+        if conf and fl != "zh":
+            conf = localize_conf(conf, has_d_ref=bool(res.get("d_ref_ok", False)), lang=fl)
+    except Exception:
+        pass
 
     nat_flag = res.get("native_2d", res.get("native", False))
     tf_obj = res.get("tilt_ref") or res.get("tf")
@@ -356,9 +411,9 @@ def export_diagnostic_figure(out_path, img, res, px1_m, px2_m=None, mask=None, s
         f"Refinement   : native_2d={nat_flag} | tilt_ok={tilt_ok}",
     ])
     ax_card.text(0.04, 0.92, "\n".join(lines), va="top", ha="left",
-                 fontfamily=["Microsoft YaHei", "SimHei", "DejaVu Sans"], fontsize=9.5,
+                 fontfamily=ff, fontsize=9.5,
                  bbox=dict(boxstyle="round,pad=0.6", fc="#f8f9fa", ec="#bdc3c7"))
-    ax_card.set_title("标定参数与质量评估摘要", fontsize=9)
+    ax_card.set_title(_fig_tr("t_diag_qa"), fontsize=9, fontfamily=ff)
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")

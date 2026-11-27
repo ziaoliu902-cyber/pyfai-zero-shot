@@ -2,77 +2,63 @@
 
 # pyfai-zero-shot
 
-**Phasenblinde Zero-Shot-Geometriekalibrierung von 2D-Röntgendetektoren<br>aus einem einzelnen Pulverringbild**
+**Phasenblinde, vorwissenfreie geometrische Kalibrierung von 2D-Pulver-Röntgendetektoren<br>für Vollringe und off-axis Teilbögen**
 
-🚫 keine bekannte Kalibrierphase &nbsp;·&nbsp; 🚫 kein Startwert für die Geometrie &nbsp;·&nbsp; 🚫 Wellenlänge optional unbekannt<br>
-✅ Ausgabe als Standard-pyFAI-PONI &nbsp;·&nbsp; ✅ Bootstrap-Unsicherheiten
+🚫 Keine Kalibrant-Vorgabe &nbsp;·&nbsp; 🚫 Keine Startgeometrie &nbsp;·&nbsp; 🌍 11-Sprachen-GUI (inkl. RTL Arabisch)<br>✅ Standard-pyFAI-<code>.poni</code>-Export &nbsp;·&nbsp; ✅ Identifizierbarkeitsstufen &nbsp;·&nbsp; ✅ Commit <code>f608e67</code>
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [正體中文](README.zh-TW.md) · **Deutsch** · [Русский](README.ru.md) · [Français](README.fr.md) · [日本語](README.ja.md)
 
-[![License: MIT](https://img.shields.io/badge/Lizenz-MIT-1a365d)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-v0.5_Preprint-1a365d)]()
+[![License: MIT](https://img.shields.io/badge/license-MIT-1a365d)](LICENSE)
+[![Commit](https://img.shields.io/badge/frozen-f608e67-0072B2)]()
 [![Python](https://img.shields.io/badge/python-3.9%2B-306998?logo=python&logoColor=white)]()
-[![Built for pyFAI](https://img.shields.io/badge/für-pyFAI-013243)]()
-[![Status](https://img.shields.io/badge/Status-Manuskript_in_Arbeit-e67e22)]()
+[![GUI Languages](https://img.shields.io/badge/GUI_languages-11_(incl._RTL)-009E73)]()
+[![Manuscript](https://img.shields.io/badge/manuscript-Science_Advances_Research_Resource-D55E00)](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)
 
 </div>
 
 ---
 
-## Warum
+## Manuskript & Preprint (Science Advances — Research Resource)
 
-Herkömmliche Kalibrierwerkzeuge (pyFAI `calib2`, DAWN, FIT2D) setzen eine
-**bekannte Kalibrierphase, manuelles Ring-Picking und einen ausreichend
-guten Startwert** voraus. Beim Kaltstart verriegeln sie sich in
-selbstkonsistenten, aber *falschen* Lösungen — der Ringindex/Abstand-
-Entartung — mit einem kleinen Residuum, das den Fehler verbirgt. Auf dem
-unten genannten öffentlichen Benchmark scheitert pyFAI im Kaltstart an
-**11/11** Bildern; diese Pipeline löst die meisten davon unbeaufsichtigt,
-aus einem einzelnen Bild, ohne dass die Probe bekannt sein muss.
+- 📄 **Hauptmanuskript PDF (10 S.):** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf) ([Markdown](manuscript/SciAdv_ResearchResource_v1.md))
+- 📊 **Supplementary Materials PDF (Tabellen S1–S5):** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
+- 🔒 **Eingefrorene Benchmarks (`f608e67`):** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
+
+## Desktop-GUI (11 Sprachen)
+
+- **PyFAI-Workflow (`probes/gui_workflow.py`)** — 5-stufige Workflow-Oberfläche mit Auto-Masking, Cake-Diagnose und Live-Umschaltung zwischen **11 Sprachen** (`probes/i18n_wf.py`: zh, en, zh_TW, ja, fr, de, ru, pt, ko, es, ar inkl. RTL).
+- **DiffBlindWizard (`probes/gui_wizard.py`)** — geführter 5-Schritte-Assistent.
 
 ## Funktionsweise
 
-Eine **klassisch-first Kaskade** über eine Pulverphasenbibliothek,
-arbitriert durch ein **konsensbasiertes Seed-Gate** (cross-seed
-consensus gate):
-
-1. ein schneller Peak-Positions-Löser startet zuerst aus der
-   Bildmitte (15 ms/Bild);
-2. nur bei Fehler greifen Fallback-Seeds — ein geschlossener
-   radialsymmetrischer Schätzer für das Strahlzentrum, Strahl-Extrapolationen
-   zur Kompensation seines Off-Axis-Bias und optional ein Regressions-
-   neuronales Netz;
-3. die Seeds stimmen ab; die Lösung gewinnt, die unabhängige Seeds erneut
-   finden — Pseudolösungen werden eliminiert;
-4. Neigungskorrektur + Bootstrap-Photonenresampling → ein Standard-**PONI**
-   mit Unsicherheiten pro Größe.
+1. **Vorverarbeitung:** `auto_offset` entfernt negative Flachdetektor-Offsets; `auto_mask` maskiert Modulspalten, Defektpixel und Beamstop-Schatten.
+2. **Mehrskalige Canvas-Leiter (`R2`):** Start bei `≤ 520 px`, bedingte Eskalation auf `ceil(maxdim/2)` bei Divergenz (`s ≥ 5`, `|ΔD|/D ≥ 10%`).
+3. **Zentrierung & Phasenarbitrierung:** Schärfe-/Kåsa-Guard, Radialsymmetrie + Strahl-Seeds, Konsenswahl und Pearson-Profilscore `ps`.
+4. **Feinjustierung:** Native 2D-Taubin-Kreisanpassung für Vollringe; regularisierte `1440²`-Ecken-Kippung + **2-Parameter-Differential-Pseudo-Voigt-Entkopplung** (`r_i = D tan(2θ_i) + δr_0`) für Teilbögen (`az_cov < 50%`).
 
 <div align="center">
-<img src="assets/fig1_architecture.png" alt="Pipeline-Architektur" width="820">
+<img src="manuscript/figures/fig1_pipeline_and_ablation.png" alt="Zero-prior pipeline and DESY 4-stage ablation" width="840">
 </div>
 
-## Ergebnisse auf einen Blick
+## Verifizierte Benchmarks (`f608e67`, Kaltstart)
 
-| Benchmark | Ergebnis |
-|---|---|
-| CeO₂-Kalibrierphase · 7 Abstände, 150–450 mm | mittlerer & schlimmster \|ΔD\| = **0,1 mm**, 7/7 konvergent; klassischer Pfad 15 ms/Bild |
-| Al₂O₃ · 52 statische Bilder | 51/52 gelöst (ein Dunkelbild korrekt verworfen); Streuung **MAD 0,45 mm**; Bootstrap σ(D) = **0,47 mm**, Ground-Truth-Coverage 6/6 |
-| Gerätecbergreifend · 10 öffentliche Bilder (8 auswertbar) | Phase identifiziert **6/8**; \|ΔD\| ≤ 0,1 mm bei **4/8**; Neigung ≲ 5 mrad; *jeder Fehlschlag wird begründet* |
-| Unabhängiger Vergleich | pyFAI im Kaltstart scheitert an **11/11** derselben Bilder; von unserer Lösung gestartet stimmt es uns zu — der Gewinn liegt in der Initialisierung, nicht in einer anderen Engine |
-
-<div align="center">
-<img src="assets/fig2_frames_rings.png" alt="Benchmark-Bilder mit angepassten Ringen" width="760"><br>
-<sub>Benchmark-Bilder mit angepassten Ringen: (a) CeO₂ bei 300 mm (8 zugeordnete Ringe); (b) Mittel der 52 statischen Al₂O₃-Bilder.</sub>
-</div>
+| Benchmark | Ergebnis (`f608e67`) |
+| :--- | :--- |
+| **DESY PETRA III P02.1** (13 Scans, 230–2290 mm) | **13/13 (100%)** `LaB6`, **13/13 `< 0.12%`**, Median **`0.030%`** (Locked OOD `0.028%`), R² `0.999999`, RMSE `0.82 mm`, Ecken-ΔC **`0.74 px`** (`9.7×`) |
+| **CLS 08B1-1 Minerale** (16 Frames, 4 Arsenminerale) | **16/16 (100%)** direkte Konvergenz, **`246.90 ± 1.36 mm`**, MAD **`0.69 mm`** |
+| **ESRF D2AM `MX_ceria` & `Al2O3`** | `CeO2` blind **7/7** (`0.139 mm` Mittel) / `phase_fit` **`0.1 mm`**; `Al2O3` **51/52**, `.spline` **`116.70 mm`** vs. GT `116.86 mm` |
+| **`silx_zoo` Detektor-Transfer** | **5/5** Phasentreffer (`Pilatus2M −0.007%`, `Eiger4M +0.041%`, `Eiger9M +0.008%`) |
+| **100 synthetische Fälle** (`Seed = 20261120`) | Scharfe Grenze bei `n_vis ≥ 4`: **41/41 `≤ 1.0%`**, **40/41 `≤ 0.20%`**, Median **`0.0010%`** vs. `n_vis ≤ 3` (`27.1%`) |
+| **Vergleich mit `pyFAI`** (24 reale Frames) | `pyFAI` Zero-Init **3/24 (12.5%)** → `Ours` **24/24 (100%)** (`0.033%`) → Seeded `pyFAI` **24/24 (100%)** (**`0.006%` / `0.11 px`**) |
 
 <details>
-<summary><b>Weitere Belege</b> (CeO₂-Abstandsfehler · unabhängiger pyFAI-Vergleich)</summary>
+<summary><b>Weitere Abbildungen aus dem Manuskript</b></summary>
 
 <div align="center">
-<img src="assets/fig3_ceria_errors.png" width="520"><br>
-<sub>CeO₂-Fehler über sieben Abstände (native 2D-Verfeinerung): mittlerer und schlimmster |ΔD| = 0,1 mm.</sub><br><br>
-<img src="assets/fig8_duel_ablation.png" width="760"><br>
-<sub>Unabhängiger Vergleich mit pyFAI (Kaltstart P0 vs. diese Pipeline T, gleicher Start P1) und Komponenten-Ablation.</sub>
+<img src="manuscript/figures/fig2_desy_blind_validation.png" width="800"><br><br>
+<img src="manuscript/figures/fig3_identifiability_bound.png" width="800"><br><br>
+<img src="manuscript/figures/fig4_multifacility_benchmarks.png" width="820"><br><br>
+<img src="manuscript/figures/fig5_pyfai_comparison.png" width="820">
 </div>
 
 </details>
@@ -80,80 +66,41 @@ consensus gate):
 ## Schnellstart
 
 ```bash
-pip install numpy scipy matplotlib pyFAI fabio pillow h5py torch
+pip install numpy scipy matplotlib pyFAI fabio pillow h5py PyQt5
 ```
 
 ```python
-import fabio
-from probes.solver_core import solve_image
+import fabio, numpy as np
+from probes.solver_core import auto_offset, solve_image
+from probes.auto_mask import build_auto_mask
 
-img = fabio.open("ihr_bild.edf").data.astype(float)
-img[img >= 1e9] = 0.0            # Sentinel-/Negativmaskierung (zoo-Schema)
-img[img < 0] = 0.0
-
-res = solve_image(img, px_m=172e-6)      # lam=None → gemeinsame λ–D-Lösung
-print(res["phase"], res["sol"])          # Phasen-ID + Geometrielösung
+img = auto_offset(fabio.open("your_frame.tif").data.astype(np.float64))
+mask, _ = build_auto_mask(img)
+res = solve_image(img, px_m=150e-6, lam=0.20735, phases=None, mask=mask)
+print(res["phase"], res["sol"], res["confidence"]["tier"])
 ```
 
-Laden Sie die im Paper referenzierten öffentlichen Testbilder
-(<https://www.silx.org/pub/pyFAI/testimages/>) nach `data/real/` und führen
-Sie die Proben aus — jede Tabelle in `probes/results/` wird deterministisch
-reproduziert (feste Seeds).
-
-| Einstiegspunkt | Zweck |
-|---|---|
-| `probes/solver_core.py` | einheitlicher `solve_image()`-Einstieg (Canvas + Zero-Shot-sicherer Fallback) |
-| `probes/zoo_run.py` | geräteübergreifender Benchmark (silx-Testbilder) |
-| `probes/phase_map.py` | Bedingungskarte (Belichtung / Neigung / Spannweite) |
-| `probes/ablation8.py` | Komponenten-Ablation (Stresssatz) |
-| `probes/_pyfai_duel.py` | unabhängiger Vergleich mit pyFAI |
-| `generators/train.py` | Training des NN-Initialisierers (synthetische Bilder) |
-
-## Repository-Struktur
-
+```bash
+# Launch the 11-language desktop workflow GUI (zh/en/zh_TW/ja/fr/de/ru/pt/ko/es/ar)
+python probes/gui_workflow.py
+# Or launch the 5-step beginner wizard
+python probes/gui_wizard.py
 ```
-torchfai/      Solver-Bibliothek (Phasen, Simulator, Verfeinerung, Modell)
-probes/        Benchmark-Proben, Abbildungsskripte, GUI-Solver
-  results/     vollständige Ergebnistabellen (.md/.json/.txt) + Referenz-PONIs
-generators/    Datengeneratoren für das NN-Training + Merge-Werkzeuge
-docs/          technische Belegdokumente (Experimentprotokolle)
-manuscript/    Manuskriptentwurf v0.5 (Markdown)
-assets/        in diesem README verwendete Abbildungen
-```
-
-## Einladung zum Blindtest
-
-> Wir sammeln **1–2 historische Bilder + zugehörige Referenz-.poni** von
-> beliebigen Messplätzen — Detektor, Kalibrierphase, Abstand, Wellenlänge
-> und Baujahr sind frei. Sie senden Bild und bekannte Kalibrierung; wir
-> rechnen vollständig blind und liefern ΔD, Strahlzentrum, Neigungen, ein
-> einsatzbereites PONI, Unsicherheitsintervalle und die Phasenidentifikation.
-> Die Referenz sehen wir erst, nachdem unsere Lösung fixiert und
-> zeitstempelbelegt ist. **Negative Ergebnisse werden genauso berichtet** —
-> mit Begründung statt Ausrede.
-
-**Kontakt:** Ziao Liu · ziaoliu902@gmail.com
 
 ## Zitation
 
 ```bibtex
-@software{pyfai_zero_shot_2026,
-  author = {Liu, Ziao},
-  title  = {pyfai-zero-shot: phase-blind, zero-shot geometry calibration
-            of 2-D X-ray detectors from powder rings},
-  year   = {2026},
-  url    = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot},
-  note   = {v0.5}
+@article{liu2026pyfaizeroshot,
+  author  = {Liu, Zi'ao and Liu, Jiaru and Liu, Haixia},
+  title   = {Phase-blind, zero-prior geometric calibration of two-dimensional powder X-ray diffraction detectors across full rings and off-axis partial arcs},
+  year    = {2026},
+  note    = {Science Advances Research Resource manuscript; frozen release commit f608e67},
+  url     = {https://github.com/ziaoliu902-cyber/pyfai-zero-shot}
 }
 ```
 
-## Lizenz und Danksagung
+## Lizenz & Danksagung
 
-MIT (siehe [LICENSE](LICENSE)). Die Benchmark-Bilder sind die öffentlich
-verteilten pyFAI-Testbilder (silx.org, aufgenommen an D2AM/BM02, ESRF);
-dieses Projekt ist ein unabhängiger Nutzer von pyFAI und steht in keiner
-Beziehung zum pyFAI-Team.
+We acknowledge DESY (Hamburg, Germany), a member of the Helmholtz Association HGF, for the provision of experimental facilities. Parts of this research were carried out at PETRA III beamline P02.1. Beamtime was allocated by an In-House contingent. We thank Dr. Martin Etter and the PETRA III P02.1 beamline team for acquiring and providing the NIST SRM 660c LaB6 flat-panel calibration datasets.
 
-<sub>Das Manuskript (v0.5) ist ein Entwurf in Arbeit und wurde nicht
-begutachtet. Die mehrsprachigen READMEs werden manuell gepflegt;
-maßgeblich ist die englische Version.</sub>
+<sub>MIT-Lizenz ([LICENSE](LICENSE)). Synchronisiert mit Commit `f608e67`.</sub>
