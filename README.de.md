@@ -18,11 +18,7 @@
 
 ---
 
-## Manuskript & Preprint (Science Advances — Research Resource)
 
-- 📄 **Hauptmanuskript PDF (10 S.):** [pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf) ([Markdown](manuscript/SciAdv_ResearchResource_v1.md))
-- 📊 **Supplementary Materials PDF (Tabellen S1–S5):** [pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)
-- 🔒 **Eingefrorene Benchmarks (`f608e67`):** [docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
 ## Desktop-GUI (11 Sprachen)
 
