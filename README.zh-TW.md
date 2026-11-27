@@ -18,11 +18,7 @@
 
 ---
 
-## 論文預印本（Science Advances — Research Resource 格式）
 
-- 📄 **英文正文 PDF（10 頁）**：[pyFAI-ZeroShot_SciAdv_ResearchResource.pdf](manuscript/pyFAI-ZeroShot_SciAdv_ResearchResource.pdf)（[Markdown](manuscript/SciAdv_ResearchResource_v1.md)）
-- 📊 **補充材料 PDF（Tables S1–S5）**：[pyFAI-ZeroShot_SciAdv_Supplementary.pdf](manuscript/pyFAI-ZeroShot_SciAdv_Supplementary.pdf)（[Markdown](manuscript/SciAdv_Supplementary_v1.md)）
-- 🔒 **全量凍結基準表（`f608e67`）**：[docs/paper_numbers_freeze_2026-11-27_f608e67.md](docs/paper_numbers_freeze_2026-11-27_f608e67.md)
 
 ## 多語言桌面工作台（11 種語言）
 
