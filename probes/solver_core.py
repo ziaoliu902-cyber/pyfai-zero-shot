@@ -1993,8 +1993,8 @@ def solve_image(img, px_m, lam=None, want="auto", phases=None, q_list=None,
                                 sc_pv = float(s) / float(s_pv)
                                 if mask is not None:
                                     register_mask(mask, s_pv)
-                                cx_pv = float(sol[0]) * sc_pv
-                                cy_pv = float(sol[1]) * sc_pv
+                                cx_pv = (float(sol[0]) + 0.5) * sc_pv - 0.5
+                                cy_pv = (float(sol[1]) + 0.5) * sc_pv - 0.5
                                 D_pv0 = float(D_c) * sc_pv
                                 pks_hi, prof_hi, bp_hi, _ = ring_radii(
                                     c_pv, cx_pv, cy_pv, use_snip=snip_rescued)
